@@ -11,6 +11,7 @@ import {
   createAttendee,
   createMeeting,
   fetchProfile,
+  presignProctorRecordingUpload,
 } from '../api/client.js';
 
 const CHAT_TOPIC = 'exam-chat-v1';
@@ -51,6 +52,9 @@ export default function ProctorDashboard({
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicReady, setIsMicReady] = useState(false);
+  const [recordingState, setRecordingState] = useState('idle'); // idle | recording | uploading
+  const [recordingError, setRecordingError] = useState('');
+  const [recordingLastKey, setRecordingLastKey] = useState('');
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
   const [profile, setProfile] = useState(null);
@@ -66,6 +70,11 @@ export default function ProctorDashboard({
   const videoRef = useRef(null); // Local Proctor Video
   const audioRef = useRef(null); // Proctor Audio Output (to hear students)
   const prejoinStreamRef = useRef(null);
+
+  const recordingRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingDrawTimerRef = useRef(null);
+  const recordingCanvasRef = useRef(null);
 
   // Ref to hold video elements mapping. Key = tileId
   const videoElements = useRef({});
@@ -101,6 +110,222 @@ export default function ProctorDashboard({
       if (student?.attendeeId === attendeeId) return extractDisplayName(student.externalUserId);
     }
     return String(attendeeId);
+  };
+
+  const isRecording = recordingState === 'recording' || recordingState === 'uploading';
+
+  const pickRecordingMimeType = () => {
+    const candidates = ['video/webm;codecs=vp8,opus', 'video/webm'];
+    // eslint-disable-next-line no-undef
+    if (typeof MediaRecorder === 'undefined') return '';
+    // eslint-disable-next-line no-undef
+    for (const t of candidates) if (MediaRecorder.isTypeSupported?.(t)) return t;
+    return '';
+  };
+
+  const listRecordableTiles = () => {
+    const entries = Object.entries(studentsMap || {})
+      .map(([stableKey, value]) => ({ stableKey, ...(value || {}) }))
+      .filter((s) => s && s.externalUserId)
+      .map((s) => ({
+        ...s,
+        displayName: extractDisplayName(s.externalUserId),
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
+
+    const tiles = [];
+    for (const s of entries) {
+      if (s.cameraTileId) {
+        const el = videoElements.current[s.cameraTileId];
+        if (el) tiles.push({ kind: 'camera', label: `${s.displayName}`, tileId: s.cameraTileId, el });
+      }
+      if (s.screenTileId) {
+        const el = videoElements.current[s.screenTileId];
+        if (el) tiles.push({ kind: 'screen', label: `${s.displayName}（共有）`, tileId: s.screenTileId, el });
+      }
+    }
+    return tiles;
+  };
+
+  const drawCover = (ctx, x, y, w, h, videoEl) => {
+    // Center-crop to fill
+    const vw = videoEl?.videoWidth || 0;
+    const vh = videoEl?.videoHeight || 0;
+    if (!vw || !vh) {
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(x, y, w, h);
+      return;
+    }
+    const scale = Math.max(w / vw, h / vh);
+    const sw = w / scale;
+    const sh = h / scale;
+    const sx = (vw - sw) / 2;
+    const sy = (vh - sh) / 2;
+    try {
+      ctx.drawImage(videoEl, sx, sy, sw, sh, x, y, w, h);
+    } catch (_) {
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(x, y, w, h);
+    }
+  };
+
+  const stopCompositeRecording = async () => {
+    try {
+      if (recordingDrawTimerRef.current) {
+        clearInterval(recordingDrawTimerRef.current);
+        recordingDrawTimerRef.current = null;
+      }
+      const recorder = recordingRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  const startCompositeRecording = async () => {
+    setRecordingError('');
+    setRecordingLastKey('');
+    if (!meetingSession?.audioVideo) {
+      setRecordingError('会議参加後に録画できます。');
+      return;
+    }
+    if (isRecording) return;
+
+    const tiles = listRecordableTiles();
+    if (tiles.length === 0) {
+      setRecordingError('録画対象の映像がありません（受験生が参加・カメラ/共有ONか確認してください）。');
+      return;
+    }
+
+    // Canvas layout (fixed)
+    const cols = 3;
+    const tileW = 480;
+    const tileH = 270;
+    const pad = 10;
+    const labelH = 22;
+
+    const rows = Math.ceil(tiles.length / cols);
+    const canvasW = pad + cols * (tileW + pad);
+    const canvasH = pad + rows * (labelH + tileH + pad);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    recordingCanvasRef.current = canvas;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setRecordingError('Canvas初期化に失敗しました。');
+      return;
+    }
+    ctx.textBaseline = 'top';
+
+    const fps = 10;
+    const canvasStream = canvas.captureStream(fps);
+
+    // Prefer directly reusing Chime-bound audio stream if available.
+    const audioTracks = [];
+    const srcObj = audioRef.current?.srcObject;
+    if (srcObj && typeof srcObj.getAudioTracks === 'function') {
+      try {
+        audioTracks.push(...srcObj.getAudioTracks());
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    const composed = new MediaStream([...canvasStream.getVideoTracks(), ...audioTracks]);
+    const mimeType = pickRecordingMimeType();
+
+    let recorder;
+    try {
+      // eslint-disable-next-line no-undef
+      recorder = new MediaRecorder(composed, mimeType ? { mimeType } : undefined);
+    } catch (e) {
+      console.error(e);
+      setRecordingError('MediaRecorderの初期化に失敗しました（ブラウザ対応をご確認ください）。');
+      return;
+    }
+
+    recordingChunksRef.current = [];
+    recorder.ondataavailable = (ev) => {
+      if (ev?.data && ev.data.size > 0) recordingChunksRef.current.push(ev.data);
+    };
+
+    recorder.onerror = (ev) => {
+      console.error('Recorder error', ev);
+      setRecordingError('録画中にエラーが発生しました。');
+    };
+
+    recorder.onstop = async () => {
+      const chunks = recordingChunksRef.current;
+      recordingChunksRef.current = [];
+
+      try {
+        setRecordingState('uploading');
+        // Use a stable content-type to avoid presign signature mismatch.
+        const contentType = 'video/webm';
+        const blob = new Blob(chunks, { type: contentType });
+
+        const joinCode = String(meetingId || '').trim();
+        const fileName = `recording-${joinCode}-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+
+        const presign = await presignProctorRecordingUpload(joinCode, {
+          file_name: fileName,
+          content_type: contentType,
+        });
+
+        const putRes = await fetch(presign.url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': contentType,
+          },
+          body: blob,
+        });
+
+        if (!putRes.ok) {
+          throw new Error(`S3 upload failed (${putRes.status})`);
+        }
+
+        setRecordingLastKey(presign.key || '');
+      } catch (e) {
+        console.error(e);
+        setRecordingError(`録画ファイルの保存に失敗しました: ${e?.message || e}`);
+      } finally {
+        setRecordingState('idle');
+      }
+    };
+
+    // Draw loop
+    const drawOnce = () => {
+      ctx.fillStyle = '#0b1220';
+      ctx.fillRect(0, 0, canvasW, canvasH);
+
+      tiles.forEach((t, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const x = pad + col * (tileW + pad);
+        const y = pad + row * (labelH + tileH + pad);
+
+        // Label bar
+        ctx.fillStyle = t.kind === 'screen' ? '#1f2937' : '#111827';
+        ctx.fillRect(x, y, tileW, labelH);
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+        ctx.fillText(t.label, x + 8, y + 3);
+
+        // Video
+        drawCover(ctx, x, y + labelH, tileW, tileH, t.el);
+      });
+    };
+
+    drawOnce();
+    recordingDrawTimerRef.current = setInterval(drawOnce, 1000 / fps);
+
+    recordingRecorderRef.current = recorder;
+    setRecordingState('recording');
+    // timeslice to avoid huge memory use
+    recorder.start(1000);
   };
 
   useEffect(() => {
@@ -811,6 +1036,21 @@ export default function ProctorDashboard({
           {meetingSession && (
             <div className="ml-auto flex items-center gap-2">
               <span className="rounded-md bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-300">Live</span>
+              {recordingState === 'recording' && (
+                <span className="rounded-md bg-rose-600/20 px-3 py-2 text-sm font-semibold text-rose-300">録画中</span>
+              )}
+              {recordingState === 'uploading' && (
+                <span className="rounded-md bg-slate-950/10 px-3 py-2 text-sm font-semibold text-slate-700">
+                  アップロード中…
+                </span>
+              )}
+              <button
+                onClick={isRecording ? stopCompositeRecording : startCompositeRecording}
+                disabled={recordingState === 'uploading'}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isRecording ? '録画停止' : '録画開始'}
+              </button>
               <button
                 onClick={toggleCamera}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
@@ -826,6 +1066,17 @@ export default function ProctorDashboard({
             </div>
           )}
         </div>
+
+        {(recordingError || recordingLastKey) && (
+          <div className="mt-3 space-y-1 text-sm">
+            {recordingError && <div className="font-semibold text-rose-600">{recordingError}</div>}
+            {recordingLastKey && (
+              <div className="text-slate-600">
+                保存先キー: <span className="font-mono text-slate-900">{recordingLastKey}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Hidden Audio Element for Proctor to hear students */}

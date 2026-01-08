@@ -129,6 +129,10 @@ export async function deleteScheduledMeeting(joinCode) {
   return callApiDelete(`/scheduled-meetings/${joinCode}`);
 }
 
+export async function presignProctorRecordingUpload(joinCode, body) {
+  return callApi(`/scheduled-meetings/${joinCode}/recordings/presign`, body);
+}
+
 export async function fetchProfile() {
   return callApiGet('/profile');
 }

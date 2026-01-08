@@ -1,6 +1,11 @@
 from datetime import datetime
+import os
+import re
+import uuid
 from typing import Optional
 
+import boto3
+from botocore.config import Config
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -34,6 +39,28 @@ class ScheduledMeetingResponse(BaseModel):
 class ScheduledMeetingStartResponse(BaseModel):
     join_code: str
     meeting: dict
+
+
+class PresignRecordingUploadRequest(BaseModel):
+    file_name: Optional[str] = None
+    # Keep this stable to avoid signature mismatch in browsers.
+    content_type: Optional[str] = "video/webm"
+
+
+class PresignRecordingUploadResponse(BaseModel):
+    bucket: str
+    key: str
+    url: str
+    expires_in: int
+
+
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_filename(name: str) -> str:
+    value = _SAFE_FILENAME_RE.sub("_", (name or "").strip())
+    value = value.strip("._")
+    return value[:120] or "recording.webm"
 
 
 @router.post("/scheduled-meetings", response_model=ScheduledMeetingResponse)
@@ -147,3 +174,54 @@ def delete_scheduled_meeting(
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@router.post(
+    "/scheduled-meetings/{join_code}/recordings/presign",
+    response_model=PresignRecordingUploadResponse,
+)
+def presign_proctor_recording_upload(
+    join_code: str,
+    request: PresignRecordingUploadRequest,
+    user=Depends(require_proctor),
+    db: Session = Depends(get_db),
+):
+    row = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == join_code).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Scheduled meeting not found")
+    if row.created_by_user_id != user["user"].id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    bucket = (os.getenv("RECORDINGS_S3_BUCKET") or "").strip()
+    if not bucket:
+        raise HTTPException(status_code=500, detail="RECORDINGS_S3_BUCKET is not configured")
+
+    content_type = (request.content_type or "video/webm").strip() or "video/webm"
+    safe_name = _safe_filename(request.file_name or "")
+    key = f"proctor-recordings/{join_code}/{uuid.uuid4().hex}-{safe_name}"
+
+    s3 = boto3.client(
+        "s3",
+        region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+        config=Config(signature_version="s3v4"),
+    )
+    expires_in = 15 * 60
+    try:
+        url = s3.generate_presigned_url(
+            ClientMethod="put_object",
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to presign upload url: {e}")
+
+    return PresignRecordingUploadResponse(
+        bucket=bucket,
+        key=key,
+        url=url,
+        expires_in=expires_in,
+    )

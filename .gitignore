@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Env / secrets
+backend/.env
+
+# Local Docker volumes / misc
+.mypy_cache/
+.pytest_cache/
+.DS_Store
