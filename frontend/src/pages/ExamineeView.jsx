@@ -663,13 +663,13 @@ export default function ExamineeView({
                 onClick={() => setJoinWithCamera((v) => !v)}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {joinWithCamera ? 'カメラ: ON' : 'カメラ: OFF'}
+                {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
               </button>
               <button
                 onClick={() => setJoinWithMic((v) => !v)}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {joinWithMic ? 'マイク: ON' : 'マイク: OFF'}
+                {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
               </button>
               <button
                 onClick={startExam}
@@ -702,13 +702,13 @@ export default function ExamineeView({
                 onClick={toggleCamera}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {isCameraOn ? 'カメラOFF' : 'カメラON'}
+                {isCameraOn ? 'カメラ:OFF' : 'カメラ:ON'}
               </button>
               <button
                 onClick={toggleMute}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {isMuted ? 'マイク: OFF' : 'マイク: ON'}
+                {isMuted ? 'マイク:OFF' : 'マイク:ON'}
               </button>
             </div>
           )}

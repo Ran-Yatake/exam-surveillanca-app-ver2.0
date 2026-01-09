@@ -102,6 +102,29 @@ export default function ProctorDashboard({
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
 
+  const chatStudentTabs = (() => {
+    const byId = new Map();
+
+    for (const s of studentsList) {
+      byId.set(s.attendeeId, s.displayName);
+    }
+
+    // Include students who have chat history but are no longer in studentsMap.
+    for (const m of chatMessages) {
+      if (m?.type !== 'direct') continue;
+      if (m.fromRole === 'examinee' && m.fromAttendeeId) {
+        if (!byId.has(m.fromAttendeeId)) byId.set(m.fromAttendeeId, resolveStudentNameByAttendeeId(m.fromAttendeeId));
+      }
+      if (m.fromRole === 'proctor' && m.toRole === 'examinee' && m.toAttendeeId) {
+        if (!byId.has(m.toAttendeeId)) byId.set(m.toAttendeeId, resolveStudentNameByAttendeeId(m.toAttendeeId));
+      }
+    }
+
+    return Array.from(byId.entries())
+      .map(([attendeeId, displayName]) => ({ attendeeId, displayName }))
+      .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), 'ja'));
+  })();
+
   const myAttendeeId = meetingSession?.configuration?.credentials?.attendeeId || '';
 
   const resolveStudentNameByAttendeeId = (attendeeId) => {
@@ -113,6 +136,16 @@ export default function ProctorDashboard({
   };
 
   const isRecording = recordingState === 'recording' || recordingState === 'uploading';
+
+  const filteredChatMessages =
+    chatTo === 'all'
+      ? chatMessages.filter((m) => m?.type === 'broadcast')
+      : chatMessages.filter(
+          (m) =>
+            m?.type === 'direct' &&
+            ((m.fromRole === 'examinee' && m.fromAttendeeId === chatTo && m.toRole === 'proctor') ||
+              (m.fromRole === 'proctor' && m.toRole === 'examinee' && m.toAttendeeId === chatTo)),
+        );
 
   const pickRecordingMimeType = () => {
     const candidates = ['video/webm;codecs=vp8,opus', 'video/webm'];
@@ -330,7 +363,7 @@ export default function ProctorDashboard({
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
-  }, [chatMessages.length]);
+  }, [chatMessages.length, chatTo]);
 
   useEffect(() => {
     if (!meetingSession?.audioVideo) return;
@@ -1016,13 +1049,13 @@ export default function ProctorDashboard({
                 onClick={() => setJoinWithCamera((v) => !v)}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {joinWithCamera ? 'カメラ: ON' : 'カメラ: OFF'}
+                {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
               </button>
               <button
                 onClick={() => setJoinWithMic((v) => !v)}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {joinWithMic ? 'マイク: ON' : 'マイク: OFF'}
+                {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
               </button>
               <button
                 onClick={() => joinSession()}
@@ -1055,13 +1088,13 @@ export default function ProctorDashboard({
                 onClick={toggleCamera}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {isCameraOn ? 'カメラOFF' : 'カメラON'}
+                {isCameraOn ? 'カメラ:OFF' : 'カメラ:ON'}
               </button>
               <button
                 onClick={toggleMute}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
-                {isMuted ? 'マイク: OFF' : 'マイク: ON'}
+                {isMuted ? 'マイク:OFF' : 'マイク:ON'}
               </button>
             </div>
           )}
@@ -1181,27 +1214,49 @@ export default function ProctorDashboard({
       <div className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold text-slate-900">チャット</h3>
-          <select
-            value={chatTo}
-            onChange={(e) => setChatTo(e.target.value)}
-            disabled={!meetingSession}
-            className="ml-auto rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 disabled:opacity-50"
-          >
-            <option value="all">全員へ（一斉送信）</option>
-            {studentsList.map((s) => (
-              <option key={s.attendeeId} value={s.attendeeId}>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setChatTo('all')}
+              disabled={!meetingSession}
+              className={
+                'rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
+                (chatTo === 'all'
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
+              }
+            >
+              全員
+            </button>
+            {chatStudentTabs.map((s) => (
+              <button
+                key={s.attendeeId}
+                type="button"
+                onClick={() => setChatTo(s.attendeeId)}
+                disabled={!meetingSession}
+                className={
+                  'rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
+                  (chatTo === s.attendeeId
+                    ? 'border-indigo-600 bg-indigo-600 text-white'
+                    : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
+                }
+              >
                 {s.displayName}
-              </option>
+              </button>
             ))}
-          </select>
+          </div>
+        </div>
+
+        <div className="mt-2 text-xs text-slate-600">
+          宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByAttendeeId(chatTo)}`}
         </div>
 
         <div className="mt-3 max-h-[260px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-          {chatMessages.length === 0 ? (
+          {filteredChatMessages.length === 0 ? (
             <div className="text-xs text-slate-600">メッセージはまだありません。</div>
           ) : (
             <div className="space-y-2">
-              {chatMessages.map((m) => {
+              {filteredChatMessages.map((m) => {
                 const fromLabel = m.fromRole === 'proctor' ? '監督者' : `受験生: ${resolveStudentNameByAttendeeId(m.fromAttendeeId)}`;
                 const toLabel =
                   m.type === 'broadcast'
