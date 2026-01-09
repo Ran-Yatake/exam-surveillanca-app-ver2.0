@@ -17,3 +17,6 @@ backend/.env
 .mypy_cache/
 .pytest_cache/
 .DS_Store
+
+# Database data
+dbdata/ 

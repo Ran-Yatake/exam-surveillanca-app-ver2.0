@@ -7,7 +7,7 @@ services:
       MYSQL_PASSWORD: app
       MYSQL_ROOT_PASSWORD: root
     volumes:
-      - mysqldata:/var/lib/mysql
+      - ./dbdata:/var/lib/mysql
     ports:
       # If your host OS already uses 3306 (e.g. local MySQL), keep it from colliding.
       - "3306:3306"
