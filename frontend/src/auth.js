@@ -46,10 +46,7 @@ export const signIn = (username, password) => {
 
 export const completeNewPassword = (cognitoUser, newPassword, userAttributes) => {
     return new Promise((resolve, reject) => {
-        // If userAttributes contains immutable fields, it will fail. 
-        // We cleaned them in signIn, but to be safe, if you don't intend to UPDATE profile data,
-        // sending an empty object {} is often safer, provided no required attributes are missing.
-        // For MVP, lets use the cleaned attributes, or fallback to empty if still issues.
+
         cognitoUser.completeNewPasswordChallenge(newPassword, userAttributes, {
             onSuccess: (result) => {
                 resolve({ type: 'success', token: result.getIdToken().getJwtToken() });
