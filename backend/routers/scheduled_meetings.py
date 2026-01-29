@@ -26,6 +26,13 @@ class ScheduledMeetingCreateRequest(BaseModel):
     region: str = "us-east-1"
 
 
+class ScheduledMeetingUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    teacher_name: Optional[str] = None
+    scheduled_start_at: Optional[datetime] = None
+    scheduled_end_at: Optional[datetime] = None
+
+
 class ScheduledMeetingResponse(BaseModel):
     join_code: str
     title: Optional[str] = None
@@ -174,6 +181,50 @@ def delete_scheduled_meeting(
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@router.patch("/scheduled-meetings/{join_code}", response_model=ScheduledMeetingResponse)
+def update_scheduled_meeting(
+    join_code: str,
+    request: ScheduledMeetingUpdateRequest,
+    user=Depends(require_proctor),
+    db: Session = Depends(get_db),
+):
+    row = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == join_code).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Scheduled meeting not found")
+    if row.created_by_user_id != user["user"].id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    if row.status == "ended":
+        raise HTTPException(status_code=400, detail="Meeting already ended")
+
+    fields_set = getattr(request, "__fields_set__", None)
+    if fields_set is None:
+        fields_set = getattr(request, "model_fields_set", set())
+
+    # Update only provided fields. Empty strings are treated as null.
+    if "title" in fields_set:
+        row.title = (request.title or "").strip() or None
+    if "teacher_name" in fields_set:
+        row.teacher_name = (request.teacher_name or "").strip() or None
+    if "scheduled_start_at" in fields_set:
+        row.scheduled_start_at = request.scheduled_start_at
+    if "scheduled_end_at" in fields_set:
+        row.scheduled_end_at = request.scheduled_end_at
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return ScheduledMeetingResponse(
+        join_code=row.join_code,
+        title=row.title,
+        teacher_name=row.teacher_name,
+        scheduled_start_at=row.scheduled_start_at,
+        scheduled_end_at=row.scheduled_end_at,
+        region=row.region,
+        status=row.status,
+    )
 
 
 @router.post(

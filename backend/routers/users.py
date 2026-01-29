@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -16,6 +16,11 @@ router = APIRouter(tags=["users"])
 class InviteUserRequest(BaseModel):
     email: str
     role: Literal["proctor", "examinee"]
+
+
+class UpdateUserRequest(BaseModel):
+    role: Optional[Literal["proctor", "examinee"]] = None
+    class_name: Optional[str] = None
 
 
 def _normalize_email(value: str) -> str:
@@ -141,3 +146,45 @@ def delete_user(
     db.commit()
 
     return {"ok": True}
+
+
+@router.patch("/users/{email}")
+def update_user(
+    email: str,
+    request: UpdateUserRequest,
+    user=Depends(require_proctor),
+    db: Session = Depends(get_db),
+):
+    normalized = _normalize_email(email)
+    current_email = str(user.get("username") or "").strip().lower()
+
+    record = db.query(User).filter(User.email == normalized).one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if request.role is not None:
+        if current_email and normalized == current_email and request.role != record.role:
+            raise HTTPException(status_code=400, detail="You cannot change your own role")
+        record.role = request.role
+
+    if request.class_name is not None:
+        # empty string => null
+        record.class_name = (request.class_name or "").strip() or None
+
+    # Safety: proctor users should not have class_name.
+    if record.role == "proctor":
+        record.class_name = None
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "id": record.id,
+        "username": record.email,
+        "role": record.role,
+        "display_name": record.user_name,
+        "class_name": record.class_name,
+        "created_at": record.created_at.isoformat() if record.created_at else None,
+        "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+    }

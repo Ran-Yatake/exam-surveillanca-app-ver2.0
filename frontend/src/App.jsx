@@ -4,7 +4,6 @@ import { signIn, signOut, completeNewPassword, getCurrentUserSession } from './a
 import ProctorDashboardHome from './pages/ProctorDashboardHome.jsx';
 import ExamineeDashboardHome from './pages/ExamineeDashboardHome.jsx';
 import ProfileEditPage from './pages/ProfileEditPage.jsx';
-import ProctorSchedulePage from './pages/ProctorSchedulePage.jsx';
 import ProctorUsersPage from './pages/ProctorUsersPage.jsx';
 import ProctorDashboard from './pages/ProctorDashboard.jsx';
 import ExamineeView from './pages/ExamineeView.jsx';
@@ -104,7 +103,7 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [role, setRole] = useState(null);
   const [userRole, setUserRole] = useState(null); // 'proctor' | 'examinee'
-  const [page, setPage] = useState('dashboard'); // 'dashboard' | 'meeting' | 'profile' | 'schedule' | 'users'
+  const [page, setPage] = useState('dashboard'); // 'dashboard' | 'meeting' | 'profile' | 'users'
   const [proctorJoinCode, setProctorJoinCode] = useState('');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -127,20 +126,26 @@ function App() {
     });
   }, []);
 
-  // Load role from backend (MySQL) after login
+  // Load role from backend (MySQL) after login and auto-route.
   useEffect(() => {
     if (!isLoggedIn) return;
-    fetchMe().then(profile => {
-      setUserRole(profile.role);
-      // If currently on proctor view but role is not proctor, kick back.
-      if (role === 'proctor' && profile.role !== 'proctor') {
-        setRole(null);
-      }
-    }).catch(err => {
-      console.error(err);
-      setError(err.message || 'Failed to load profile');
-    });
-  }, [isLoggedIn, role]);
+    let cancelled = false;
+    fetchMe()
+      .then((profile) => {
+        if (cancelled) return;
+        const nextRole = profile?.role || null;
+        setUserRole(nextRole);
+        setRole(nextRole);
+        setPage('dashboard');
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setError(err?.message || 'Failed to load profile');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   // Load display_name for header (preferred over username).
   useEffect(() => {
@@ -171,14 +176,6 @@ function App() {
       setError('');
       try {
           try {
-             // DEV Bypass check first
-             if (username.startsWith("dev")) {
-                 console.warn("Using DEV bypass login");
-               setAuthToken("dev-token-bypass");
-                 setIsLoggedIn(true);
-                 return;
-             }
-
              const result = await signIn(username, password);
              
              if (result.type === 'new_password_required') {
@@ -279,7 +276,6 @@ function App() {
 
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                   <div>Tip: Update frontend/src/config.js with your User Pool ID.</div>
-                  <div>Dev Bypass: Use username starting with "dev" (e.g. "dev-admin")</div>
                 </div>
 
                 <button
@@ -299,7 +295,7 @@ function App() {
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <div className="mx-auto w-full max-w-4xl px-4 py-8">
           <header className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold">Exam Surveillance App</h1>
+            <h1 className="text-xl font-semibold">SAK University</h1>
             <button
               onClick={() => { setIsLoggedIn(false); setRole(null); signOut(); clearAuthToken(); }}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
@@ -312,32 +308,9 @@ function App() {
             <div className="text-sm text-slate-600">Logged in as</div>
             <div className="mt-1 text-lg font-semibold">{username}</div>
 
-            <div className="mt-6 text-sm font-medium text-slate-800">Select your role</div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  if (userRole !== 'proctor') {
-                    setError('You are not allowed to access Proctor Dashboard.');
-                    return;
-                  }
-                  setRole('proctor');
-                  setPage('dashboard');
-                }}
-                disabled={userRole !== 'proctor'}
-                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Proctor (Supervisor)
-              </button>
-              <button
-                onClick={() => { setRole('examinee'); setPage('dashboard'); }}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                Examinee (Student)
-              </button>
-            </div>
-
+            <div className="mt-6 text-sm font-medium text-slate-800">ロール情報を取得中...</div>
             {userRole && (
-              <p className="mt-4 text-xs text-slate-600">
+              <p className="mt-3 text-xs text-slate-600">
                 Your role: <span className="font-semibold text-slate-800">{userRole}</span>
               </p>
             )}
@@ -353,9 +326,9 @@ function App() {
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
         <header className="mb-6 flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
-            <h1 className="text-lg font-semibold">Exam Surveillance</h1>
+            <h1 className="text-lg font-semibold">SAK University</h1>
             <div className="text-xs text-slate-600">
-              {role === 'proctor' ? 'Proctor Dashboard' : 'Examinee View'}
+              {role === 'proctor' ? '監督者ダッシュボード' : '受験生ダッシュボード'}
             </div>
           </div>
 
@@ -364,12 +337,24 @@ function App() {
               {displayName && <div className="text-xs font-semibold text-slate-900">{displayName}</div>}
               <div className="text-sm text-slate-700">{username}</div>
             </div>
-            <button
-              onClick={() => { setRole(null); setPage('dashboard'); }}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-            >
-              Switch Role
-            </button>
+
+            {role === 'proctor' && (
+              <>
+                <button
+                  onClick={() => setPage('users')}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  ユーザー一覧
+                </button>
+                <button
+                  onClick={() => setPage('profile')}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                >
+                  プロフィール編集
+                </button>
+              </>
+            )}
+
             <button
               onClick={() => { setIsLoggedIn(false); setRole(null); signOut(); clearAuthToken(); }}
               className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
@@ -381,11 +366,12 @@ function App() {
 
       {page === 'dashboard' && role === 'proctor' && (
         <ProctorDashboardHome
-          onGoMeeting={(dest) => setPage(dest === 'schedule' ? 'schedule' : 'meeting')}
+          onGoMeeting={() => setPage('meeting')}
           onGoProfile={() => setPage('profile')}
           onGoUsers={() => setPage('users')}
           selectedJoinCode={proctorJoinCode}
           onSelectJoinCode={(code) => setProctorJoinCode(code)}
+          currentUsername={username}
         />
       )}
 
@@ -403,16 +389,6 @@ function App() {
         />
       )}
 
-      {page === 'schedule' && role === 'proctor' && (
-        <ProctorSchedulePage
-          selectedJoinCode={proctorJoinCode}
-          onSelectJoinCode={(code) => setProctorJoinCode(code)}
-          onGoMeeting={() => setPage('meeting')}
-          onDone={() => setPage('dashboard')}
-          currentUsername={username}
-        />
-      )}
-
       {page === 'users' && role === 'proctor' && (
         <ProctorUsersPage onDone={() => setPage('dashboard')} />
       )}
@@ -422,7 +398,6 @@ function App() {
           currentUsername={username}
           meetingId={proctorJoinCode}
           onSetMeetingId={(code) => setProctorJoinCode(code)}
-          onGoSchedule={() => setPage('schedule')}
           onBack={() => setPage('dashboard')}
           makeExternalUserIdWithFallback={makeExternalUserIdWithFallback}
           extractDisplayName={extractDisplayName}

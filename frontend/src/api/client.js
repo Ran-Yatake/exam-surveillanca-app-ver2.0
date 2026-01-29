@@ -58,6 +58,31 @@ export async function callApi(endpoint, body) {
   return res.json();
 }
 
+export async function callApiPatch(endpoint, body) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...buildAuthHeaders(),
+  };
+
+  if (!headers.Authorization) {
+    console.warn(`[callApiPatch] Warning: No authToken available for request to ${endpoint}`);
+  }
+
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    if (res.status === 401) throw new Error(`Unauthorized: Please sign in again.${detail}`);
+    throw new Error(`API Error: ${res.status}${detail}`);
+  }
+
+  return res.json();
+}
+
 export async function callApiGet(endpoint) {
   const headers = {
     ...buildAuthHeaders(),
@@ -129,6 +154,10 @@ export async function deleteScheduledMeeting(joinCode) {
   return callApiDelete(`/scheduled-meetings/${joinCode}`);
 }
 
+export async function updateScheduledMeeting(joinCode, body) {
+  return callApiPatch(`/scheduled-meetings/${joinCode}`, body);
+}
+
 export async function presignProctorRecordingUpload(joinCode, body) {
   return callApi(`/scheduled-meetings/${joinCode}/recordings/presign`, body);
 }
@@ -152,4 +181,9 @@ export async function inviteUser(body) {
 export async function deleteUser(email) {
   const encoded = encodeURIComponent(String(email || '').trim());
   return callApiDelete(`/users/${encoded}`);
+}
+
+export async function updateUser(email, body) {
+  const encoded = encodeURIComponent(String(email || '').trim());
+  return callApiPatch(`/users/${encoded}`, body);
 }

@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
 
-import { deleteUser, inviteUser, listUsers } from '../api/client.js';
+import { deleteUser, inviteUser, listUsers, updateUser } from '../api/client.js';
 
 export default function ProctorUsersPage({ onDone }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState(null);
+  const [editRole, setEditRole] = useState('examinee');
+  const [editClassName, setEditClassName] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState('');
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -42,6 +49,52 @@ export default function ProctorUsersPage({ onDone }) {
     if (inviteBusy) return;
     setInviteOpen(false);
     setInviteError('');
+  };
+
+  const openEdit = (u) => {
+    setEditError('');
+    setEditUser(u || null);
+    setEditRole(String(u?.role || 'examinee'));
+    setEditClassName(String(u?.class_name || ''));
+    setEditOpen(true);
+  };
+
+  const closeEdit = () => {
+    if (editBusy) return;
+    setEditOpen(false);
+    setEditError('');
+  };
+
+  const submitEdit = async () => {
+    const email = String(editUser?.username || '').trim();
+    if (!email) return;
+
+    setEditBusy(true);
+    setEditError('');
+    try {
+      const role = String(editRole || '').trim();
+      const className = String(editClassName || '').trim();
+      if (role !== 'proctor' && role !== 'examinee') {
+        setEditError('区分が正しくありません');
+        return;
+      }
+      if (role === 'examinee' && !className) {
+        setEditError('クラスを入力してください');
+        return;
+      }
+
+      await updateUser(email, {
+        role,
+        class_name: role === 'proctor' ? null : className,
+      });
+
+      setEditOpen(false);
+      await refresh();
+    } catch (err) {
+      setEditError(err?.message || '更新に失敗しました');
+    } finally {
+      setEditBusy(false);
+    }
   };
 
   const submitInvite = async () => {
@@ -114,7 +167,7 @@ export default function ProctorUsersPage({ onDone }) {
             <div className="text-xs font-medium text-slate-600">登録ユーザー</div>
 
             <div className="mt-2 space-y-2">
-              <div className="hidden sm:grid sm:grid-cols-[220px_220px_140px_1fr_96px] sm:items-center sm:gap-2 px-3 text-center text-xs font-semibold text-slate-600">
+              <div className="hidden sm:grid sm:grid-cols-[220px_220px_140px_1fr_160px] sm:items-center sm:gap-2 px-3 text-center text-xs font-semibold text-slate-600">
                 <div>ユーザーID</div>
                 <div>ユーザー名</div>
                 <div>区分</div>
@@ -145,26 +198,40 @@ export default function ProctorUsersPage({ onDone }) {
                       </div>
                       <div className="mt-3 flex justify-end">
                         <button
+                          onClick={() => openEdit(u)}
+                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 whitespace-nowrap"
+                        >
+                          編集
+                        </button>
+                        <button
                           onClick={() => onDelete(username)}
-                          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
+                          className="ml-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 whitespace-nowrap"
                         >
                           削除
                         </button>
                       </div>
                     </div>
 
-                    <div className="hidden w-full sm:grid sm:grid-cols-[220px_220px_140px_1fr_96px] sm:items-center sm:gap-2 text-center">
+                    <div className="hidden w-full sm:grid sm:grid-cols-[220px_220px_140px_1fr_160px] sm:items-center sm:gap-2 text-center">
                       <div className="text-sm text-slate-800 truncate">{username}</div>
                       <div className="text-sm text-slate-800 truncate">{displayName}</div>
                       <div className="text-sm text-slate-800">{role}</div>
                       <div className="text-sm text-slate-800 truncate">{className}</div>
                       <div className="flex justify-end">
-                        <button
-                          onClick={() => onDelete(username)}
-                          className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-                        >
-                          削除
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEdit(u)}
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 whitespace-nowrap"
+                          >
+                            編集
+                          </button>
+                          <button
+                            onClick={() => onDelete(username)}
+                            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 whitespace-nowrap"
+                          >
+                            削除
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -233,6 +300,72 @@ export default function ProctorUsersPage({ onDone }) {
                   className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {inviteBusy ? '送信中...' : '送信'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6">
+            <div className="flex items-start gap-2">
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-slate-900">ユーザー編集</h3>
+                <p className="mt-1 text-sm text-slate-600">区分（role）とクラス（kurasu）を変更できます。</p>
+              </div>
+              <button
+                onClick={closeEdit}
+                className="ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+                disabled={editBusy}
+              >
+                閉じる
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-800">ユーザーID（メール）</label>
+                <input
+                  value={String(editUser?.username || '')}
+                  readOnly
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-800">区分（role）</label>
+                <select
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="examinee">examinee</option>
+                  <option value="proctor">proctor</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-800">クラス（kurasu）</label>
+                <input
+                  value={editClassName}
+                  onChange={(e) => setEditClassName(e.target.value)}
+                  disabled={String(editRole) === 'proctor'}
+                  placeholder={String(editRole) === 'proctor' ? '監督者はクラス不要' : '例: 1-A'}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:cursor-not-allowed"
+                />
+              </div>
+
+              {editError && <p className="text-sm text-red-600">{editError}</p>}
+
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={submitEdit}
+                  disabled={editBusy}
+                  className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {editBusy ? '保存中...' : '保存'}
                 </button>
               </div>
             </div>

@@ -42,7 +42,6 @@ export default function ProctorDashboard({
   currentUsername,
   meetingId,
   onSetMeetingId,
-  onGoSchedule,
   onBack,
   makeExternalUserIdWithFallback,
   extractDisplayName,
@@ -65,7 +64,11 @@ export default function ProctorDashboard({
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatTo, setChatTo] = useState('all'); // 'all' | attendeeId
+  const [chatUnreadByKey, setChatUnreadByKey] = useState({}); // { [key: 'all' | attendeeId]: number }
+  const [chatNotice, setChatNotice] = useState('');
   const chatSeenIdsRef = useRef(new Set());
+  const chatToRef = useRef('all');
+  const chatNoticeTimerRef = useRef(null);
   const chatEndRef = useRef(null);
   const videoRef = useRef(null); // Local Proctor Video
   const audioRef = useRef(null); // Proctor Audio Output (to hear students)
@@ -146,6 +149,50 @@ export default function ProctorDashboard({
             ((m.fromRole === 'examinee' && m.fromAttendeeId === chatTo && m.toRole === 'proctor') ||
               (m.fromRole === 'proctor' && m.toRole === 'examinee' && m.toAttendeeId === chatTo)),
         );
+
+  const totalUnread = Object.entries(chatUnreadByKey).reduce((sum, [key, count]) => {
+    if (key === chatTo) return sum;
+    return sum + (Number(count) || 0);
+  }, 0);
+
+  const clearChatNoticeTimer = () => {
+    if (!chatNoticeTimerRef.current) return;
+    clearTimeout(chatNoticeTimerRef.current);
+    chatNoticeTimerRef.current = null;
+  };
+
+  const showChatNotice = (text) => {
+    const msg = String(text || '').trim();
+    if (!msg) return;
+
+    setChatNotice(msg);
+    clearChatNoticeTimer();
+    chatNoticeTimerRef.current = setTimeout(() => {
+      setChatNotice('');
+      chatNoticeTimerRef.current = null;
+    }, 3000);
+  };
+
+  const bumpUnread = (key) => {
+    const k = String(key || '').trim();
+    if (!k) return;
+    setChatUnreadByKey((prev) => ({
+      ...(prev || {}),
+      [k]: (Number(prev?.[k]) || 0) + 1,
+    }));
+  };
+
+  const clearUnread = (key) => {
+    const k = String(key || '').trim();
+    if (!k) return;
+    setChatUnreadByKey((prev) => {
+      const n = Number(prev?.[k]) || 0;
+      if (n <= 0) return prev;
+      const next = { ...(prev || {}) };
+      delete next[k];
+      return next;
+    });
+  };
 
   const pickRecordingMimeType = () => {
     const candidates = ['video/webm;codecs=vp8,opus', 'video/webm'];
@@ -366,6 +413,17 @@ export default function ProctorDashboard({
   }, [chatMessages.length, chatTo]);
 
   useEffect(() => {
+    chatToRef.current = chatTo;
+    clearUnread(chatTo);
+  }, [chatTo]);
+
+  useEffect(() => {
+    return () => {
+      clearChatNoticeTimer();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!meetingSession?.audioVideo) return;
 
     const onDataMessage = (dataMessage) => {
@@ -393,6 +451,14 @@ export default function ProctorDashboard({
 
       if (chatSeenIdsRef.current.has(id)) return;
       chatSeenIdsRef.current.add(id);
+
+      const convKey = payload.type === 'broadcast' ? 'all' : senderAttendeeId;
+      const currentTo = chatToRef.current;
+      const isIncomingFromExaminee = payload.fromRole === 'examinee' && payload.toRole === 'proctor' && payload.type === 'direct';
+      if (isIncomingFromExaminee && convKey && convKey !== currentTo) {
+        bumpUnread(convKey);
+        showChatNotice(`${resolveStudentNameByAttendeeId(convKey)} から新着メッセージ`);
+      }
 
       setChatMessages((prev) => [
         ...prev,
@@ -1115,35 +1181,37 @@ export default function ProctorDashboard({
       {/* Hidden Audio Element for Proctor to hear students */}
       <audio ref={audioRef} className="hidden" />
 
-      <div className="flex flex-col gap-4 lg:flex-row">
-        {/* Proctor's Local View (Self) */}
-        <div className="w-full lg:w-[220px]">
-          <div className="relative overflow-hidden rounded-lg border border-indigo-500/50 bg-slate-50">
-            <div className="aspect-[4/3]">
-              <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-              {showMicOffBadge && (
-                <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
-                  <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
-                    <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
-                  </span>
-                  <span>マイクOFF</span>
-                </div>
-              )}
-              {!prejoinCameraEnabled && (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm font-semibold text-white">
-                  Camera Off
-                </div>
-              )}
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 bg-slate-950/70 px-2 py-1 text-center text-xs font-medium text-slate-100">
-              Proctor Self View
+      <div className="flex flex-col gap-4">
+        {/* Proctor's Local View (Self) - shown above student panels */}
+        <div className="flex justify-start">
+          <div className="w-full lg:w-[220px]">
+            <div className="relative overflow-hidden rounded-lg border border-indigo-500/50 bg-slate-50">
+              <div className="aspect-[4/3]">
+                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                {showMicOffBadge && (
+                  <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
+                    <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
+                      <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
+                    </span>
+                    <span>マイクOFF</span>
+                  </div>
+                )}
+                {!prejoinCameraEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm font-semibold text-white">
+                    Camera Off
+                  </div>
+                )}
+              </div>
+              <div className="absolute bottom-0 left-0 right-0 bg-slate-950/70 px-2 py-1 text-center text-xs font-medium text-slate-100">
+                Proctor Self View
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex-1">
-          {/* Grid of Students */}
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+        <div>
+          {/* Grid of Students (3 columns) */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Object.values(studentsMap).map((student) => {
               const displayName = extractDisplayName(student.externalUserId);
               const showMutedBadge = student.isMuted === true;
@@ -1214,6 +1282,9 @@ export default function ProctorDashboard({
       <div className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold text-slate-900">チャット</h3>
+          {totalUnread > 0 ? (
+            <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">新着 {totalUnread}</span>
+          ) : null}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -1235,13 +1306,18 @@ export default function ProctorDashboard({
                 onClick={() => setChatTo(s.attendeeId)}
                 disabled={!meetingSession}
                 className={
-                  'rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
+                  'relative rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
                   (chatTo === s.attendeeId
                     ? 'border-indigo-600 bg-indigo-600 text-white'
                     : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
                 }
               >
                 {s.displayName}
+                {Number(chatUnreadByKey?.[s.attendeeId]) > 0 ? (
+                  <span className="ml-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {chatUnreadByKey[s.attendeeId]}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -1250,6 +1326,8 @@ export default function ProctorDashboard({
         <div className="mt-2 text-xs text-slate-600">
           宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByAttendeeId(chatTo)}`}
         </div>
+
+        {chatNotice ? <div className="mt-1 text-xs font-semibold text-rose-600">{chatNotice}</div> : null}
 
         <div className="mt-3 max-h-[260px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
           {filteredChatMessages.length === 0 ? (
