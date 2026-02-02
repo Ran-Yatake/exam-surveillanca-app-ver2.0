@@ -7,19 +7,9 @@ import {
   listScheduledMeetings,
   updateScheduledMeeting,
 } from '../api/client.js';
-import ScheduledMeetingDetailModal from '../components/ScheduledMeetingDetailModal.jsx';
-
-const TIME_15MIN_OPTIONS = (() => {
-  const out = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      const hh = String(h).padStart(2, '0');
-      const mm = String(m).padStart(2, '0');
-      out.push(`${hh}:${mm}`);
-    }
-  }
-  return out;
-})();
+import ScheduledMeetingDetailModal from '../components/scheduled-meetings/ScheduledMeetingDetailModal.jsx';
+import CreateScheduledMeetingModal from '../components/scheduled-meetings/CreateScheduledMeetingModal.jsx';
+import ScheduledMeetingsList from '../components/scheduled-meetings/ScheduledMeetingsList.jsx';
 
 export default function ProctorDashboardHome({
   onGoMeeting,
@@ -201,115 +191,19 @@ export default function ProctorDashboardHome({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm font-semibold text-slate-800">予定一覧</div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              onClick={openCreateModal}
-              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-            >
-              ＋ 作成
-            </button>
-            <button
-              onClick={refreshSchedules}
-              disabled={scheduleListLoading}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {scheduleListLoading ? '更新中...' : '更新'}
-            </button>
-          </div>
-        </div>
-
-        {scheduleError && <p className="mt-3 text-sm text-red-600">{scheduleError}</p>}
-
-        {scheduledMeetings.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-600">予定がありません（「＋ 作成」から作成できます）。</p>
-        ) : (
-          <div className="mt-3 space-y-2">
-            <div className="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_180px_200px_110px_1fr_192px] sm:items-center sm:gap-2 px-3 text-center text-xs font-semibold text-slate-600">
-              <div>タイトル</div>
-              <div>担当教員</div>
-              <div>予定日時</div>
-              <div>状態</div>
-              <div>ID</div>
-              <div />
-            </div>
-            {scheduledMeetings.map((m) => {
-              const title = m.title || '（無題）';
-              const teacher = m.teacher_name || '—';
-              const scheduledAt = formatScheduleTime(m.scheduled_start_at);
-              const status = m.status || '—';
-              const joinCode = m.join_code || '';
-              return (
-                <div
-                  key={m.join_code}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
-                >
-                  <div className="w-full sm:hidden">
-                    <div className="text-sm font-semibold text-slate-900">{title}</div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      担当教員: <span className="text-slate-800">{teacher}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      予定: <span className="text-slate-800">{scheduledAt}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      状態: <span className="text-slate-800">{status}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      ID: <span className="text-slate-800">{joinCode}</span>
-                    </div>
-                  </div>
-
-                  <div className="hidden w-full sm:grid sm:grid-cols-[minmax(0,1fr)_180px_200px_110px_1fr_192px] sm:items-center sm:gap-2 text-center">
-                    <div className="text-sm text-slate-900 truncate">{title}</div>
-                    <div className="text-sm text-slate-800 truncate">{teacher}</div>
-                    <div className="text-sm text-slate-800">{scheduledAt}</div>
-                    <div className="text-sm text-slate-800">{status}</div>
-                    <div className="text-sm text-slate-800">{joinCode}</div>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => {
-                          onSelectJoinCode(String(m.join_code || ''));
-                          onGoMeeting();
-                        }}
-                        className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
-                      >
-                        開始
-                      </button>
-                      <button
-                        onClick={() => openDetail(m)}
-                        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-                      >
-                        詳細
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="sm:hidden ml-auto flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        onSelectJoinCode(String(m.join_code || ''));
-                        onGoMeeting();
-                      }}
-                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
-                    >
-                      開始
-                    </button>
-                    <button
-                      onClick={() => openDetail(m)}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-                    >
-                      詳細
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <ScheduledMeetingsList
+        scheduledMeetings={scheduledMeetings}
+        loading={scheduleListLoading}
+        error={scheduleError}
+        onOpenCreate={openCreateModal}
+        onRefresh={refreshSchedules}
+        onStartMeeting={(m) => {
+          onSelectJoinCode(String(m?.join_code || ''));
+          onGoMeeting();
+        }}
+        onOpenDetail={(m) => openDetail(m)}
+        formatScheduleTime={formatScheduleTime}
+      />
 
       <ScheduledMeetingDetailModal
         open={detailOpen}
@@ -356,119 +250,24 @@ export default function ProctorDashboardHome({
         }}
       />
 
-      {createModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="schedule-create-title"
-        >
-          <button
-            type="button"
-            aria-label="閉じる"
-            className="absolute inset-0 bg-black/40"
-            onClick={closeCreateModal}
-            disabled={createBusy}
-          />
-          <div className="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div id="schedule-create-title" className="text-base font-semibold text-slate-900">
-                  会議スケジュールを作成
-                </div>
-                <div className="mt-1 text-xs text-slate-600">試験名・担当教員・試験日時を入力してください</div>
-              </div>
-              <button
-                type="button"
-                onClick={closeCreateModal}
-                disabled={createBusy}
-                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                閉じる
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <label htmlFor="schedule-title" className="block text-xs font-medium text-slate-600">
-                  試験名
-                </label>
-                <input
-                  id="schedule-title"
-                  value={scheduleTitle}
-                  onChange={(e) => setScheduleTitle(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="schedule-teacher" className="block text-xs font-medium text-slate-600">
-                  担当教員
-                </label>
-                <input
-                  id="schedule-teacher"
-                  value={scheduleTeacher}
-                  onChange={(e) => {
-                    setTeacherEdited(true);
-                    setScheduleTeacher(e.target.value);
-                  }}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="w-full sm:w-auto sm:min-w-[200px]">
-                    <label htmlFor="schedule-date" className="block text-xs font-medium text-slate-600">
-                      日付
-                    </label>
-                    <input
-                      id="schedule-date"
-                      type="date"
-                      value={scheduleDate}
-                      onChange={(e) => setScheduleDate(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div className="w-full sm:w-auto sm:min-w-[160px]">
-                    <label htmlFor="schedule-time" className="block text-xs font-medium text-slate-600">
-                      時間
-                    </label>
-                    <input
-                      id="schedule-time"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="HH:MM"
-                      list="schedule-time-15min"
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <datalist id="schedule-time-15min">
-                      {TIME_15MIN_OPTIONS.map((t) => (
-                        <option key={t} value={t} />
-                      ))}
-                    </datalist>
-                  </div>
-                </div>
-              </div>
-
-              {createError && <p className="text-sm text-red-600">{createError}</p>}
-            </div>
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={createSchedule}
-                disabled={createBusy}
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {createBusy ? '作成中...' : '作成'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreateScheduledMeetingModal
+        open={createModalOpen}
+        busy={createBusy}
+        error={createError}
+        title={scheduleTitle}
+        teacher={scheduleTeacher}
+        date={scheduleDate}
+        time={scheduleTime}
+        onClose={closeCreateModal}
+        onTitleChange={(v) => setScheduleTitle(v)}
+        onTeacherChange={(v) => {
+          setTeacherEdited(true);
+          setScheduleTeacher(v);
+        }}
+        onDateChange={(v) => setScheduleDate(v)}
+        onTimeChange={(v) => setScheduleTime(v)}
+        onSubmit={createSchedule}
+      />
     </div>
   );
 }

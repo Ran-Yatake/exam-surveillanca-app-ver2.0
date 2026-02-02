@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
 import { deleteUser, inviteUser, listUsers, updateUser } from '../api/client.js';
+import EditUserModal from '../components/proctor-users/EditUserModal.jsx';
+import InviteUserModal from '../components/proctor-users/InviteUserModal.jsx';
+import UsersList from '../components/proctor-users/UsersList.jsx';
 
 export default function ProctorUsersPage({ onDone }) {
   const [users, setUsers] = useState([]);
@@ -160,218 +163,33 @@ export default function ProctorUsersPage({ onDone }) {
 
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
-        {users.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-600">ユーザーがありません。</p>
-        ) : (
-          <div className="mt-4">
-            <div className="text-xs font-medium text-slate-600">登録ユーザー</div>
-
-            <div className="mt-2 space-y-2">
-              <div className="hidden sm:grid sm:grid-cols-[220px_220px_140px_1fr_160px] sm:items-center sm:gap-2 px-3 text-center text-xs font-semibold text-slate-600">
-                <div>ユーザーID</div>
-                <div>ユーザー名</div>
-                <div>区分</div>
-                <div>クラス</div>
-                <div />
-              </div>
-
-              {users.map((u) => {
-                const username = u.username || '—';
-                const displayName = u.display_name || '—';
-                const role = u.role || '—';
-                const className = u.class_name || '—';
-                return (
-                  <div
-                    key={u.id || username}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <div className="w-full sm:hidden">
-                      <div className="text-sm font-semibold text-slate-900">{username}</div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        ユーザー名: <span className="text-slate-800">{displayName}</span>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        区分: <span className="text-slate-800">{role}</span>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        クラス: <span className="text-slate-800">{className}</span>
-                      </div>
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          onClick={() => openEdit(u)}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 whitespace-nowrap"
-                        >
-                          編集
-                        </button>
-                        <button
-                          onClick={() => onDelete(username)}
-                          className="ml-2 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 whitespace-nowrap"
-                        >
-                          削除
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="hidden w-full sm:grid sm:grid-cols-[220px_220px_140px_1fr_160px] sm:items-center sm:gap-2 text-center">
-                      <div className="text-sm text-slate-800 truncate">{username}</div>
-                      <div className="text-sm text-slate-800 truncate">{displayName}</div>
-                      <div className="text-sm text-slate-800">{role}</div>
-                      <div className="text-sm text-slate-800 truncate">{className}</div>
-                      <div className="flex justify-end">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => openEdit(u)}
-                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 whitespace-nowrap"
-                          >
-                            編集
-                          </button>
-                          <button
-                            onClick={() => onDelete(username)}
-                            className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 whitespace-nowrap"
-                          >
-                            削除
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <UsersList users={users} onEdit={openEdit} onDelete={onDelete} />
       </div>
 
-      {inviteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900">新規ユーザー登録</h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  メールアドレス宛に仮パスワード付きの招待メールを送信します。
-                </p>
-              </div>
-              <button
-                onClick={closeInvite}
-                className="ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
-                disabled={inviteBusy}
-              >
-                閉じる
-              </button>
-            </div>
+      <InviteUserModal
+        open={inviteOpen}
+        busy={inviteBusy}
+        email={inviteEmail}
+        role={inviteRole}
+        error={inviteError}
+        onClose={closeInvite}
+        onEmailChange={(v) => setInviteEmail(v)}
+        onRoleChange={(v) => setInviteRole(v)}
+        onSubmit={submitInvite}
+      />
 
-            <div className="mt-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-800">メールアドレス</label>
-                <input
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="example@example.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-800">区分</label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="examinee">examinee</option>
-                  <option value="proctor">proctor</option>
-                </select>
-              </div>
-
-              {inviteError && <p className="text-sm text-red-600">{inviteError}</p>}
-
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={closeInvite}
-                  disabled={inviteBusy}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  キャンセル
-                </button>
-                <button
-                  onClick={submitInvite}
-                  disabled={inviteBusy}
-                  className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {inviteBusy ? '送信中...' : '送信'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900">ユーザー編集</h3>
-                <p className="mt-1 text-sm text-slate-600">区分（role）とクラス（kurasu）を変更できます。</p>
-              </div>
-              <button
-                onClick={closeEdit}
-                className="ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50"
-                disabled={editBusy}
-              >
-                閉じる
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-800">ユーザーID（メール）</label>
-                <input
-                  value={String(editUser?.username || '')}
-                  readOnly
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-800">区分（role）</label>
-                <select
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="examinee">examinee</option>
-                  <option value="proctor">proctor</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-800">クラス（kurasu）</label>
-                <input
-                  value={editClassName}
-                  onChange={(e) => setEditClassName(e.target.value)}
-                  disabled={String(editRole) === 'proctor'}
-                  placeholder={String(editRole) === 'proctor' ? '監督者はクラス不要' : '例: 1-A'}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:cursor-not-allowed"
-                />
-              </div>
-
-              {editError && <p className="text-sm text-red-600">{editError}</p>}
-
-              <div className="flex items-center justify-end">
-                <button
-                  onClick={submitEdit}
-                  disabled={editBusy}
-                  className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {editBusy ? '保存中...' : '保存'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <EditUserModal
+        open={editOpen}
+        busy={editBusy}
+        user={editUser}
+        role={editRole}
+        className={editClassName}
+        error={editError}
+        onClose={closeEdit}
+        onRoleChange={(v) => setEditRole(v)}
+        onClassNameChange={(v) => setEditClassName(v)}
+        onSubmit={submitEdit}
+      />
     </div>
   );
 }

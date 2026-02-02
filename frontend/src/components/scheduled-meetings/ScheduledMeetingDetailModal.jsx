@@ -249,7 +249,8 @@ export default function ScheduledMeetingDetailModal({
                 return;
               }
 
-              const localDateTime = hasDate && hasTime ? `${String(editDate).trim()}T${String(editTime).trim()}` : '';
+              const localDateTime =
+                hasDate && hasTime ? `${String(editDate).trim()}T${String(editTime).trim()}` : '';
               const body = {
                 title: String(editTitle || '').trim() || null,
                 teacher_name: String(editTeacher || '').trim() || null,

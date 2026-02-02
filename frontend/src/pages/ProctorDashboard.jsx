@@ -13,6 +13,8 @@ import {
   fetchProfile,
   presignProctorRecordingUpload,
 } from '../api/client.js';
+import ChatPanel from '../components/chat/ChatPanel.jsx';
+import ProctorChatMessage from '../components/chat/messages/ProctorChatMessage.jsx';
 
 const CHAT_TOPIC = 'exam-chat-v1';
 const MAX_CHAT_LEN = 500;
@@ -1279,111 +1281,70 @@ export default function ProctorDashboard({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold text-slate-900">チャット</h3>
-          {totalUnread > 0 ? (
-            <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">新着 {totalUnread}</span>
-          ) : null}
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setChatTo('all')}
-              disabled={!meetingSession}
-              className={
-                'rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
-                (chatTo === 'all'
-                  ? 'border-indigo-600 bg-indigo-600 text-white'
-                  : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
-              }
-            >
-              全員
-            </button>
-            {chatStudentTabs.map((s) => (
+      <ChatPanel
+        title="チャット"
+        headerRight={
+          <>
+            {totalUnread > 0 ? (
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">新着 {totalUnread}</span>
+            ) : null}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <button
-                key={s.attendeeId}
                 type="button"
-                onClick={() => setChatTo(s.attendeeId)}
+                onClick={() => setChatTo('all')}
                 disabled={!meetingSession}
                 className={
-                  'relative rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
-                  (chatTo === s.attendeeId
+                  'rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
+                  (chatTo === 'all'
                     ? 'border-indigo-600 bg-indigo-600 text-white'
                     : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
                 }
               >
-                {s.displayName}
-                {Number(chatUnreadByKey?.[s.attendeeId]) > 0 ? (
-                  <span className="ml-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    {chatUnreadByKey[s.attendeeId]}
-                  </span>
-                ) : null}
+                全員
               </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-2 text-xs text-slate-600">
-          宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByAttendeeId(chatTo)}`}
-        </div>
-
-        {chatNotice ? <div className="mt-1 text-xs font-semibold text-rose-600">{chatNotice}</div> : null}
-
-        <div className="mt-3 max-h-[260px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-          {filteredChatMessages.length === 0 ? (
-            <div className="text-xs text-slate-600">メッセージはまだありません。</div>
-          ) : (
-            <div className="space-y-2">
-              {filteredChatMessages.map((m) => {
-                const fromLabel = m.fromRole === 'proctor' ? '監督者' : `受験生: ${resolveStudentNameByAttendeeId(m.fromAttendeeId)}`;
-                const toLabel =
-                  m.type === 'broadcast'
-                    ? '全員'
-                    : m.toRole === 'proctor'
-                      ? '監督者'
-                      : `受験生: ${resolveStudentNameByAttendeeId(m.toAttendeeId)}`;
-                return (
-                  <div key={m.id} className="rounded-md border border-slate-200 bg-white p-2">
-                    <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                      <span className="font-semibold text-slate-800">{fromLabel}</span>
-                      <span>→</span>
-                      <span className="font-semibold text-slate-800">{toLabel}</span>
-                      <span className="ml-auto">{new Date(m.ts).toLocaleTimeString()}</span>
-                    </div>
-                    <div className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-900">{m.text}</div>
-                  </div>
-                );
-              })}
-              <div ref={chatEndRef} />
+              {chatStudentTabs.map((s) => (
+                <button
+                  key={s.attendeeId}
+                  type="button"
+                  onClick={() => setChatTo(s.attendeeId)}
+                  disabled={!meetingSession}
+                  className={
+                    'relative rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
+                    (chatTo === s.attendeeId
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
+                  }
+                >
+                  {s.displayName}
+                  {Number(chatUnreadByKey?.[s.attendeeId]) > 0 ? (
+                    <span className="ml-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {chatUnreadByKey[s.attendeeId]}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-
-        <div className="mt-3 flex gap-2">
-          <input
-            value={chatDraft}
-            onChange={(e) => setChatDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                sendChat();
-              }
-            }}
-            disabled={!meetingSession}
-            placeholder={meetingSession ? 'メッセージを入力…' : '会議参加後に利用できます'}
-            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 disabled:opacity-50"
-          />
-          <button
-            onClick={sendChat}
-            disabled={!meetingSession || !String(chatDraft || '').trim()}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            送信
-          </button>
-        </div>
-
-        <p className="mt-2 text-[11px] text-slate-500">受験生同士のチャットは表示されません（監督者⇄受験生のみ）。</p>
-      </div>
+          </>
+        }
+        subHeader={
+          <>
+            宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByAttendeeId(chatTo)}`}
+          </>
+        }
+        notice={chatNotice}
+        messages={filteredChatMessages}
+        renderMessage={(m) => (
+          <ProctorChatMessage key={m.id} message={m} resolveStudentNameByAttendeeId={resolveStudentNameByAttendeeId} />
+        )}
+        endRef={chatEndRef}
+        draft={chatDraft}
+        onDraftChange={(v) => setChatDraft(v)}
+        onSend={sendChat}
+        disabled={!meetingSession}
+        placeholder={meetingSession ? 'メッセージを入力…' : '会議参加後に利用できます'}
+        sendDisabled={!meetingSession || !String(chatDraft || '').trim()}
+        footerNote="受験生同士のチャットは表示されません（監督者⇄受験生のみ）。"
+      />
     </div>
   );
 }
