@@ -45,6 +45,11 @@ export default function ProctorDashboard({
   meetingId,
   onSetMeetingId,
   onBack,
+  autoJoin,
+  initialJoinWithCamera,
+  initialJoinWithMic,
+  initialPrejoinStream,
+  onAutoJoinConsumed,
   makeExternalUserIdWithFallback,
   extractDisplayName,
 }) {
@@ -75,6 +80,8 @@ export default function ProctorDashboard({
   const videoRef = useRef(null); // Local Proctor Video
   const audioRef = useRef(null); // Proctor Audio Output (to hear students)
   const prejoinStreamRef = useRef(null);
+  const autoJoinStartedRef = useRef(false);
+  const initialConfigAppliedRef = useRef(false);
 
   const recordingRecorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
@@ -778,10 +785,38 @@ export default function ProctorDashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingSession, joinWithCamera]);
 
+  // Apply initial pre-join configuration (from the waiting modal) once.
+  useEffect(() => {
+    if (initialConfigAppliedRef.current) return;
+
+    const hasAny =
+      typeof initialJoinWithCamera === 'boolean' ||
+      typeof initialJoinWithMic === 'boolean' ||
+      Boolean(initialPrejoinStream);
+    if (!hasAny) return;
+
+    initialConfigAppliedRef.current = true;
+    if (typeof initialJoinWithCamera === 'boolean') setJoinWithCamera(Boolean(initialJoinWithCamera));
+    if (typeof initialJoinWithMic === 'boolean') setJoinWithMic(Boolean(initialJoinWithMic));
+
+    if (initialPrejoinStream && !meetingSession) {
+      // Use the stream obtained in the modal to avoid re-requesting permissions.
+      prejoinStreamRef.current = initialPrejoinStream;
+      try {
+        if (videoRef.current) {
+          videoRef.current.srcObject = initialPrejoinStream;
+          videoRef.current.play?.().catch?.(() => {});
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+  }, [initialJoinWithCamera, initialJoinWithMic, initialPrejoinStream, meetingSession]);
+
   const joinSession = async (meetingIdOverride) => {
     try {
       const joinCode = String(meetingIdOverride || meetingId || '').trim();
-      if (!meetingId) {
+      if (!joinCode) {
         setStatus('Error: Please create/select a scheduled meeting first.');
         return;
       }
@@ -1039,6 +1074,21 @@ export default function ProctorDashboard({
       setStatus('Error: ' + error.message);
     }
   };
+
+  // Auto-join flow: if the user clicked "開始" in the waiting modal, join immediately.
+  useEffect(() => {
+    if (!autoJoin) return;
+    if (autoJoinStartedRef.current) return;
+    if (meetingSession) return;
+    if (profileLoading) return;
+    const joinCode = String(meetingId || '').trim();
+    if (!joinCode) return;
+
+    autoJoinStartedRef.current = true;
+    onAutoJoinConsumed?.();
+    joinSession(joinCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoJoin, meetingId, meetingSession, profileLoading]);
 
   const prejoinCameraEnabled = meetingSession ? isCameraOn : joinWithCamera;
   const showMicOffBadge = meetingSession ? isMuted : !joinWithMic;

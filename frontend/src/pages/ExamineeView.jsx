@@ -38,6 +38,12 @@ function makeMessageId() {
 export default function ExamineeView({
   currentUsername,
   onBack,
+  autoJoin,
+  initialMeetingJoinId,
+  initialJoinWithCamera,
+  initialJoinWithMic,
+  initialPrejoinStream,
+  onAutoJoinConsumed,
   makeExternalUserIdWithFallback,
   extractDisplayName,
 }) {
@@ -60,6 +66,8 @@ export default function ExamineeView({
   const chatEndRef = useRef(null);
   const videoRef = useRef(null);
   const prejoinStreamRef = useRef(null);
+  const autoJoinStartedRef = useRef(false);
+  const initialConfigAppliedRef = useRef(false);
   const screenRef = useRef(null); // Local preview of screen share
   const screenShareStreamRef = useRef(null);
   const proctorVideoRef = useRef(null); // Remote Proctor View
@@ -371,9 +379,9 @@ export default function ExamineeView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingSession, joinWithCamera]);
 
-  const startExam = async () => {
+  const startExam = async (meetingIdOverride) => {
     try {
-      const joinId = String(meetingJoinId || '').trim();
+      const joinId = String(meetingIdOverride || meetingJoinId || '').trim();
       if (!joinId) {
         setStatus('Error: Please enter the Meeting ID.');
         return;
@@ -493,6 +501,59 @@ export default function ExamineeView({
       setStatus('Error: ' + error.message);
     }
   };
+
+  // Apply initial pre-join configuration (from the waiting modal) once.
+  useEffect(() => {
+    if (initialConfigAppliedRef.current) return;
+
+    const hasAny =
+      Boolean(String(initialMeetingJoinId || '').trim()) ||
+      typeof initialJoinWithCamera === 'boolean' ||
+      typeof initialJoinWithMic === 'boolean' ||
+      Boolean(initialPrejoinStream);
+    if (!hasAny) return;
+
+    initialConfigAppliedRef.current = true;
+
+    const id = String(initialMeetingJoinId || '').trim();
+    if (id) setMeetingJoinId(id);
+    if (typeof initialJoinWithCamera === 'boolean') setJoinWithCamera(Boolean(initialJoinWithCamera));
+    if (typeof initialJoinWithMic === 'boolean') setJoinWithMic(Boolean(initialJoinWithMic));
+
+    if (initialPrejoinStream && !meetingSession) {
+      prejoinStreamRef.current = initialPrejoinStream;
+      try {
+        if (videoRef.current) {
+          videoRef.current.srcObject = initialPrejoinStream;
+          videoRef.current.play?.().catch?.(() => {});
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+  }, [
+    initialMeetingJoinId,
+    initialJoinWithCamera,
+    initialJoinWithMic,
+    initialPrejoinStream,
+    meetingSession,
+  ]);
+
+  // Auto-join flow: if the user clicked "開始" in the waiting modal, join immediately.
+  useEffect(() => {
+    if (!autoJoin) return;
+    if (autoJoinStartedRef.current) return;
+    if (meetingSession) return;
+    if (profileLoading) return;
+
+    const id = String(initialMeetingJoinId || meetingJoinId || '').trim();
+    if (!id) return;
+
+    autoJoinStartedRef.current = true;
+    onAutoJoinConsumed?.();
+    startExam(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoJoin, meetingSession, profileLoading, initialMeetingJoinId, meetingJoinId]);
 
   const prejoinCameraEnabled = meetingSession ? isCameraOn : joinWithCamera;
 

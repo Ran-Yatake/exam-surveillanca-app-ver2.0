@@ -5,11 +5,13 @@ import {
   deleteScheduledMeeting,
   fetchProfile,
   listScheduledMeetings,
+  startScheduledMeeting,
   updateScheduledMeeting,
 } from '../api/client.js';
 import ScheduledMeetingDetailModal from '../components/scheduled-meetings/ScheduledMeetingDetailModal.jsx';
 import CreateScheduledMeetingModal from '../components/scheduled-meetings/CreateScheduledMeetingModal.jsx';
 import ScheduledMeetingsList from '../components/scheduled-meetings/ScheduledMeetingsList.jsx';
+import PreJoinMeetingModal from '../components/scheduled-meetings/PreJoinMeetingModal.jsx';
 
 export default function ProctorDashboardHome({
   onGoMeeting,
@@ -37,6 +39,11 @@ export default function ProctorDashboardHome({
   const [detailMeeting, setDetailMeeting] = useState(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState('');
+
+  const [prejoinOpen, setPrejoinOpen] = useState(false);
+  const [prejoinMeeting, setPrejoinMeeting] = useState(null);
+  const [prejoinBusy, setPrejoinBusy] = useState(false);
+  const [prejoinError, setPrejoinError] = useState('');
 
   const refreshSchedules = async () => {
     setScheduleListLoading(true);
@@ -130,6 +137,17 @@ export default function ProctorDashboardHome({
     setDetailOpen(true);
   };
 
+  const openPrejoin = (m) => {
+    setPrejoinError('');
+    setPrejoinMeeting(m || null);
+    setPrejoinOpen(true);
+  };
+
+  const closePrejoin = () => {
+    if (prejoinBusy) return;
+    setPrejoinOpen(false);
+  };
+
   const closeDetail = () => {
     if (detailBusy) return;
     setDetailOpen(false);
@@ -199,10 +217,50 @@ export default function ProctorDashboardHome({
         onRefresh={refreshSchedules}
         onStartMeeting={(m) => {
           onSelectJoinCode(String(m?.join_code || ''));
-          onGoMeeting();
+          openPrejoin(m);
         }}
         onOpenDetail={(m) => openDetail(m)}
         formatScheduleTime={formatScheduleTime}
+      />
+
+      <PreJoinMeetingModal
+        open={prejoinOpen}
+        meeting={prejoinMeeting}
+        busy={prejoinBusy}
+        error={prejoinError}
+        onClose={closePrejoin}
+        onStart={async ({ joinWithCamera, joinWithMic, prejoinStream }) => {
+          const joinCode = String(prejoinMeeting?.join_code || '').trim();
+          if (!joinCode) {
+            setPrejoinError('join_code が見つかりません');
+            return;
+          }
+
+          setPrejoinBusy(true);
+          setPrejoinError('');
+          try {
+            await startScheduledMeeting(joinCode);
+
+            // keep selectedJoinCode in sync
+            onSelectJoinCode(joinCode);
+
+            // Navigate to meeting page and auto-join.
+            onGoMeeting?.({
+              joinCode,
+              joinWithCamera: Boolean(joinWithCamera),
+              joinWithMic: Boolean(joinWithMic),
+              prejoinStream: prejoinStream || null,
+              autoJoin: true,
+            });
+
+            setPrejoinOpen(false);
+          } catch (err) {
+            setPrejoinError(err?.message || '開始に失敗しました');
+            // If start failed, do NOT navigate; user can retry.
+          } finally {
+            setPrejoinBusy(false);
+          }
+        }}
       />
 
       <ScheduledMeetingDetailModal

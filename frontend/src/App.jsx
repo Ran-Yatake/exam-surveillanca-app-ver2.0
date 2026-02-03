@@ -113,6 +113,20 @@ function App() {
   const [userRole, setUserRole] = useState(null); // 'proctor' | 'examinee'
   const [page, setPage] = useState('dashboard'); // 'dashboard' | 'meeting' | 'profile' | 'users'
   const [proctorJoinCode, setProctorJoinCode] = useState('');
+  const [proctorAutoJoin, setProctorAutoJoin] = useState({
+    enabled: false,
+    joinWithCamera: true,
+    joinWithMic: true,
+    prejoinStream: null,
+  });
+
+  const [examineeAutoJoin, setExamineeAutoJoin] = useState({
+    enabled: false,
+    meetingJoinId: '',
+    joinWithCamera: true,
+    joinWithMic: true,
+    prejoinStream: null,
+  });
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -376,7 +390,23 @@ function App() {
 
       {page === 'dashboard' && role === 'proctor' && (
         <ProctorDashboardHome
-          onGoMeeting={() => setPage('meeting')}
+          onGoMeeting={(opts) => {
+            const joinCode = String(opts?.joinCode || '').trim();
+            if (joinCode) setProctorJoinCode(joinCode);
+
+            if (opts?.autoJoin) {
+              setProctorAutoJoin({
+                enabled: true,
+                joinWithCamera: Boolean(opts?.joinWithCamera),
+                joinWithMic: Boolean(opts?.joinWithMic),
+                prejoinStream: opts?.prejoinStream || null,
+              });
+            } else {
+              setProctorAutoJoin({ enabled: false, joinWithCamera: true, joinWithMic: true, prejoinStream: null });
+            }
+
+            setPage('meeting');
+          }}
           onGoProfile={() => setPage('profile')}
           onGoUsers={() => setPage('users')}
           selectedJoinCode={proctorJoinCode}
@@ -387,7 +417,29 @@ function App() {
 
       {page === 'dashboard' && role === 'examinee' && (
         <ExamineeDashboardHome
-          onGoMeeting={() => setPage('meeting')}
+          onGoMeeting={(opts) => {
+            const joinCode = String(opts?.joinCode || '').trim();
+
+            if (opts?.autoJoin) {
+              setExamineeAutoJoin({
+                enabled: true,
+                meetingJoinId: joinCode,
+                joinWithCamera: Boolean(opts?.joinWithCamera),
+                joinWithMic: Boolean(opts?.joinWithMic),
+                prejoinStream: opts?.prejoinStream || null,
+              });
+            } else {
+              setExamineeAutoJoin({
+                enabled: false,
+                meetingJoinId: '',
+                joinWithCamera: true,
+                joinWithMic: true,
+                prejoinStream: null,
+              });
+            }
+
+            setPage('meeting');
+          }}
           onGoProfile={() => setPage('profile')}
         />
       )}
@@ -408,7 +460,17 @@ function App() {
           currentUsername={username}
           meetingId={proctorJoinCode}
           onSetMeetingId={(code) => setProctorJoinCode(code)}
-          onBack={() => setPage('dashboard')}
+          onBack={() => {
+            setProctorAutoJoin({ enabled: false, joinWithCamera: true, joinWithMic: true, prejoinStream: null });
+            setPage('dashboard');
+          }}
+          autoJoin={Boolean(proctorAutoJoin?.enabled)}
+          initialJoinWithCamera={Boolean(proctorAutoJoin?.joinWithCamera)}
+          initialJoinWithMic={Boolean(proctorAutoJoin?.joinWithMic)}
+          initialPrejoinStream={proctorAutoJoin?.prejoinStream || null}
+          onAutoJoinConsumed={() =>
+            setProctorAutoJoin((prev) => ({ ...(prev || {}), enabled: false, prejoinStream: null }))
+          }
           makeExternalUserIdWithFallback={makeExternalUserIdWithFallback}
           extractDisplayName={extractDisplayName}
         />
@@ -417,7 +479,24 @@ function App() {
       {page === 'meeting' && role === 'examinee' && (
         <ExamineeView
           currentUsername={username}
-          onBack={() => setPage('dashboard')}
+          onBack={() => {
+            setExamineeAutoJoin({
+              enabled: false,
+              meetingJoinId: '',
+              joinWithCamera: true,
+              joinWithMic: true,
+              prejoinStream: null,
+            });
+            setPage('dashboard');
+          }}
+          autoJoin={Boolean(examineeAutoJoin?.enabled)}
+          initialMeetingJoinId={String(examineeAutoJoin?.meetingJoinId || '')}
+          initialJoinWithCamera={Boolean(examineeAutoJoin?.joinWithCamera)}
+          initialJoinWithMic={Boolean(examineeAutoJoin?.joinWithMic)}
+          initialPrejoinStream={examineeAutoJoin?.prejoinStream || null}
+          onAutoJoinConsumed={() =>
+            setExamineeAutoJoin((prev) => ({ ...(prev || {}), enabled: false, prejoinStream: null }))
+          }
           makeExternalUserIdWithFallback={makeExternalUserIdWithFallback}
           extractDisplayName={extractDisplayName}
         />
