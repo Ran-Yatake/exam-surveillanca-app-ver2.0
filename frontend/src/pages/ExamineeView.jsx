@@ -580,158 +580,160 @@ export default function ExamineeView({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6 max-w-4xl">
-        <p className="text-sm text-slate-700">
-          Status: <span className="font-semibold text-slate-900">{status}</span>
-        </p>
-        <p className="mt-1 text-sm text-slate-600">Please ensure your camera is on and you are sharing your screen.</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="rounded-xl border border-slate-200 bg-white p-6 w-full lg:flex-1">
+          <p className="text-sm text-slate-700">
+            Status: <span className="font-semibold text-slate-900">{status}</span>
+          </p>
+          <p className="mt-1 text-sm text-slate-600">Please ensure your camera is on and you are sharing your screen.</p>
 
-        {!meetingSession && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <label className="text-sm font-semibold text-slate-800">ミーティングID</label>
-            <input
-              value={meetingJoinId}
-              onChange={(e) => setMeetingJoinId(e.target.value)}
-              placeholder="監督者から共有されたIDを入力"
-              className="w-full sm:w-auto sm:min-w-[280px] rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-        )}
-
-        {/* Hidden Audio for hearing Proctor */}
-        <audio ref={audioRef} className="hidden" />
-
-        <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-start">
-          {/* Left Column: Student Self Views */}
-          <div className="flex flex-row gap-4 lg:flex-col">
-            <div className="relative w-[200px] overflow-hidden rounded-lg bg-black">
-              <div className="h-[150px]">
-                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-              </div>
-              {showMicOffBadge && (
-                <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
-                  <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
-                    <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
-                  </span>
-                  <span>マイクOFF</span>
-                </div>
-              )}
-              {!prejoinCameraEnabled && (
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm font-semibold text-white">
-                  Camera Off
-                </div>
-              )}
-              <div className="absolute bottom-2 left-2 rounded bg-slate-950/70 px-2 py-1 text-xs font-medium text-white">
-                My Camera
-              </div>
-            </div>
-
-            <div className="relative w-[200px] overflow-hidden rounded-lg bg-slate-900">
-              <div className="h-[150px] flex items-center justify-center">
-                <video ref={screenRef} autoPlay playsInline muted className="h-full w-full object-contain" />
-                {!isScreenSharing && <div className="absolute text-xs text-slate-700">Not Sharing</div>}
-              </div>
-              {showMicOffBadge && (
-                <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
-                  <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
-                    <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
-                  </span>
-                  <span>マイクOFF</span>
-                </div>
-              )}
-              <div className="absolute bottom-2 left-2 rounded bg-slate-950/70 px-2 py-1 text-xs font-medium text-white">
-                My Screen
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Proctor View */}
-          <div className="relative flex-1 overflow-hidden rounded-xl border border-red-500/40 bg-white">
-            <div className="h-[310px] flex items-center justify-center">
-              <video ref={proctorVideoRef} className="h-full w-full object-contain" />
-              {!meetingSession && <div className="absolute text-sm text-slate-600">Proctor video will appear here</div>}
-            </div>
-            <div className="absolute left-3 top-3 rounded bg-red-600/70 px-3 py-2 text-xs font-bold text-white">
-              PROCTOR (Supervisor)
-              {proctorExternalUserId ? `: ${extractDisplayName(proctorExternalUserId)}` : ''}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-2">
           {!meetingSession && (
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setJoinWithCamera((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
-              </button>
-              <button
-                onClick={() => setJoinWithMic((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
-              </button>
-              <button
-                onClick={startExam}
-                disabled={status === 'Initializing...'}
-                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                1. 会議に参加
-              </button>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <label className="text-sm font-semibold text-slate-800">ミーティングID</label>
+              <input
+                value={meetingJoinId}
+                onChange={(e) => setMeetingJoinId(e.target.value)}
+                placeholder="監督者から共有されたIDを入力"
+                className="w-full sm:w-auto sm:min-w-[280px] rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
             </div>
           )}
 
-          {meetingSession && !isScreenSharing && (
-            <button
-              onClick={shareScreen}
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-400"
-            >
-              2. Share Screen
-            </button>
-          )}
+          {/* Hidden Audio for hearing Proctor */}
+          <audio ref={audioRef} className="hidden" />
 
-          {isScreenSharing && (
-            <span className="rounded-md bg-emerald-600/20 px-4 py-2 text-sm font-semibold text-emerald-300">
-              Screen Sharing Active
-            </span>
-          )}
+          <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-start">
+            {/* Left Column: Student Self Views */}
+            <div className="flex flex-row gap-4 lg:flex-col">
+              <div className="relative w-[200px] overflow-hidden rounded-lg bg-black">
+                <div className="h-[150px]">
+                  <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+                </div>
+                {showMicOffBadge && (
+                  <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
+                    <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
+                      <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
+                    </span>
+                    <span>マイクOFF</span>
+                  </div>
+                )}
+                {!prejoinCameraEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm font-semibold text-white">
+                    Camera Off
+                  </div>
+                )}
+                <div className="absolute bottom-2 left-2 rounded bg-slate-950/70 px-2 py-1 text-xs font-medium text-white">
+                  My Camera
+                </div>
+              </div>
 
-          {meetingSession && (
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={toggleCamera}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {isCameraOn ? 'カメラ:ON' : 'カメラ:OFF'}
-              </button>
-              <button
-                onClick={toggleMute}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {isMuted ? 'マイク:OFF' : 'マイク:ON'}
-              </button>
+              <div className="relative w-[200px] overflow-hidden rounded-lg bg-slate-900">
+                <div className="h-[150px] flex items-center justify-center">
+                  <video ref={screenRef} autoPlay playsInline muted className="h-full w-full object-contain" />
+                  {!isScreenSharing && <div className="absolute text-xs text-slate-700">Not Sharing</div>}
+                </div>
+                {showMicOffBadge && (
+                  <div className="absolute right-2 top-2 flex items-center gap-1 rounded bg-slate-950/70 px-2 py-1 text-[10px] font-semibold text-white">
+                    <span className="relative inline-block h-3 w-3 rounded-full border border-white/80">
+                      <span className="absolute left-[-2px] top-1/2 h-[2px] w-[calc(100%+4px)] -translate-y-1/2 rotate-45 bg-white/80" />
+                    </span>
+                    <span>マイクOFF</span>
+                  </div>
+                )}
+                <div className="absolute bottom-2 left-2 rounded bg-slate-950/70 px-2 py-1 text-xs font-medium text-white">
+                  My Screen
+                </div>
+              </div>
             </div>
-          )}
+
+            {/* Right Column: Proctor View */}
+            <div className="relative flex-1 overflow-hidden rounded-xl border border-red-500/40 bg-white">
+              <div className="h-[310px] flex items-center justify-center">
+                <video ref={proctorVideoRef} className="h-full w-full object-contain" />
+                {!meetingSession && <div className="absolute text-sm text-slate-600">Proctor video will appear here</div>}
+              </div>
+              <div className="absolute left-3 top-3 rounded bg-red-600/70 px-3 py-2 text-xs font-bold text-white">
+                PROCTOR (Supervisor)
+                {proctorExternalUserId ? `: ${extractDisplayName(proctorExternalUserId)}` : ''}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            {!meetingSession && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setJoinWithCamera((v) => !v)}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                >
+                  {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
+                </button>
+                <button
+                  onClick={() => setJoinWithMic((v) => !v)}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                >
+                  {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
+                </button>
+                <button
+                  onClick={startExam}
+                  disabled={status === 'Initializing...'}
+                  className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  1. 会議に参加
+                </button>
+              </div>
+            )}
+
+            {meetingSession && !isScreenSharing && (
+              <button
+                onClick={shareScreen}
+                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-400"
+              >
+                2. Share Screen
+              </button>
+            )}
+
+            {isScreenSharing && (
+              <span className="rounded-md bg-emerald-600/20 px-4 py-2 text-sm font-semibold text-emerald-300">
+                Screen Sharing Active
+              </span>
+            )}
+
+            {meetingSession && (
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={toggleCamera}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                >
+                  {isCameraOn ? 'カメラ:ON' : 'カメラ:OFF'}
+                </button>
+                <button
+                  onClick={toggleMute}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                >
+                  {isMuted ? 'マイク:OFF' : 'マイク:ON'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <ChatPanel
-        className="max-w-4xl"
-        title="チャット"
-        headerRight={<div className="ml-auto text-xs text-slate-600">宛先: 監督者</div>}
-        messages={chatMessages}
-        renderMessage={(m) => <ExamineeChatMessage key={m.id} message={m} />}
-        endRef={chatEndRef}
-        draft={chatDraft}
-        onDraftChange={(v) => setChatDraft(v)}
-        onSend={sendChatToProctor}
-        disabled={!meetingSession}
-        placeholder={meetingSession ? 'メッセージを入力…' : '会議参加後に利用できます'}
-        sendDisabled={!meetingSession || !String(chatDraft || '').trim()}
-        footerNote="受験生同士のチャットはできません（監督者⇄受験生のみ）。"
-      />
+        <ChatPanel
+          className="w-full lg:w-[360px] lg:shrink-0"
+          title="チャット"
+          headerRight={<div className="ml-auto text-xs text-slate-600">宛先: 監督者</div>}
+          messages={chatMessages}
+          renderMessage={(m) => <ExamineeChatMessage key={m.id} message={m} />}
+          endRef={chatEndRef}
+          draft={chatDraft}
+          onDraftChange={(v) => setChatDraft(v)}
+          onSend={sendChatToProctor}
+          disabled={!meetingSession}
+          placeholder={meetingSession ? 'メッセージを入力…' : '会議参加後に利用できます'}
+          sendDisabled={!meetingSession || !String(chatDraft || '').trim()}
+          footerNote="受験生同士のチャットはできません（監督者⇄受験生のみ）。"
+        />
+      </div>
     </div>
   );
 }

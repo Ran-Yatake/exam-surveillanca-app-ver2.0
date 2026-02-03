@@ -100,6 +100,14 @@ function extractDisplayName(externalUserId) {
 }
 
 function App() {
+  const AuthHeader = () => (
+    <header className="w-full border-b border-slate-200 bg-white/80 backdrop-blur">
+      <div className="mx-auto w-full max-w-6xl px-4 py-4">
+        <h1 className="text-lg font-semibold text-slate-900">SAK University</h1>
+      </div>
+    </header>
+  );
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [role, setRole] = useState(null);
   const [userRole, setUserRole] = useState(null); // 'proctor' | 'examinee'
@@ -213,79 +221,81 @@ function App() {
 
   if (isNewPasswordRequired) {
       return (
-          <div className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6">
-              <h1 className="text-xl font-semibold">パスワード変更</h1>
-              <p className="mt-1 text-sm text-slate-600">続行するには新しいパスワードを設定してください。</p>
+          <div className="min-h-screen bg-slate-50 text-slate-900">
+            <AuthHeader />
+            <main className="min-h-[calc(100vh-65px)] flex items-center justify-center px-4">
+              <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6">
+                <h1 className="text-xl font-semibold">パスワード変更</h1>
+                <p className="mt-1 text-sm text-slate-600">続行するには新しいパスワードを設定してください。</p>
 
-              <form onSubmit={handleNewPasswordSubmit} className="mt-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-800">New Password</label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={e=>setNewPassword(e.target.value)}
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                <form onSubmit={handleNewPasswordSubmit} className="mt-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-800">New Password</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={e=>setNewPassword(e.target.value)}
+                      required
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
 
-                {errorInstance && <p className="text-sm text-red-400">{errorInstance}</p>}
+                  {errorInstance && <p className="text-sm text-red-400">{errorInstance}</p>}
 
-                <button
-                  type="submit"
-                  className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-                >
-                  Update Password
-                </button>
-              </form>
-            </div>
+                  <button
+                    type="submit"
+                    className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                  >
+                    Update Password
+                  </button>
+                </form>
+              </div>
+            </main>
           </div>
       );
   }
 
   if (!isLoggedIn) {
       return (
-          <div className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4">
-            <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6">
-              <h1 className="text-xl font-semibold">ログイン</h1>
-              <form onSubmit={handleLogin} className="mt-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-800">Username</label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={e=>setUsername(e.target.value)}
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+          <div className="min-h-screen bg-slate-50 text-slate-900">
+            <AuthHeader />
+            <main className="min-h-[calc(100vh-65px)] flex items-center justify-center px-4">
+              <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6">
+                <h1 className="text-xl font-semibold">ログイン</h1>
+                <form onSubmit={handleLogin} className="mt-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-800">Username</label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e=>setUsername(e.target.value)}
+                      required
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-800">Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={e=>setPassword(e.target.value)}
-                    required
-                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-800">Password</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e=>setPassword(e.target.value)}
+                      required
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
 
-                {errorInstance && <p className="text-sm text-red-400">{errorInstance}</p>}
+                  {errorInstance && <p className="text-sm text-red-400">{errorInstance}</p>}
 
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                  <div>Tip: Update frontend/src/config.js with your User Pool ID.</div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-                >
-                  Sign In
-                </button>
-              </form>
-            </div>
+                  <button
+                    type="submit"
+                    className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                  >
+                    Sign In
+                  </button>
+                </form>
+              </div>
+            </main>
           </div>
       );
   }

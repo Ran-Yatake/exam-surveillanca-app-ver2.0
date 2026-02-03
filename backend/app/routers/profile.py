@@ -1,13 +1,12 @@
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth import get_current_user_record
-from db import get_db
-from models import User
+from ..auth import get_current_user_record
+from ..db import get_db
+from ..models import User
 
 router = APIRouter(tags=["profile"])
 

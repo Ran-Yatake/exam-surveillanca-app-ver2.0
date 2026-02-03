@@ -40,7 +40,7 @@ def init_db() -> None:
     Note: this is intentionally lightweight (MVP). It should not block app startup.
     """
     # Import models so Base.metadata is populated
-    from models import ScheduledMeeting, User  # noqa: F401
+    from .models import ScheduledMeeting, User  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

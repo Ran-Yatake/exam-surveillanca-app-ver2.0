@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth import COGNITO_REGION, COGNITO_USER_POOL_ID, require_proctor
-from db import get_db
-from models import ScheduledMeeting, User
+from ..auth import COGNITO_REGION, COGNITO_USER_POOL_ID, require_proctor
+from ..db import get_db
+from ..models import ScheduledMeeting, User
 
 router = APIRouter(tags=["users"])
 

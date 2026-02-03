@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth import get_current_user_record, require_proctor
-from chime_client import _generate_join_code, _get_or_create_chime_meeting
-from db import get_db
-from models import ScheduledMeeting
+from ..auth import get_current_user_record, require_proctor
+from ..chime_client import _generate_join_code, _get_or_create_chime_meeting
+from ..db import get_db
+from ..models import ScheduledMeeting
 
 router = APIRouter(tags=["scheduled-meetings"])
 
