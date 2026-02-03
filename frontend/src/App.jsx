@@ -24,6 +24,17 @@ function sanitizeTokenPart(value) {
     .slice(0, 32);
 }
 
+function stableUserKeyFromUsername(username) {
+  const s = String(username || '').trim().toLowerCase();
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(s)) {
+    h ^= b;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
 function toBase64Url(utf8String) {
   const bytes = new TextEncoder().encode(String(utf8String || ''));
   let binary = '';
@@ -62,7 +73,9 @@ function makeExternalUserId(role, profile) {
   const rand = Math.floor(Math.random() * 1000000);
 
   if (role === 'proctor') {
-    return `proctor:${displayName}:${rand}`;
+    // NOTE: include a stable key segment for proctor identity across sessions.
+    const userKey = stableUserKeyFromUsername(profile?.username || profile?.email || '') || toBase64Url(String(rand));
+    return `proctor:${displayName}:${userKey}:${rand}`;
   }
   return `student:${displayName}:${clazz}:${rand}`;
 }
@@ -75,7 +88,8 @@ function makeExternalUserIdWithFallback(role, profile, username) {
   const rand = Math.floor(Math.random() * 1000000);
 
   if (role === 'proctor') {
-    return `proctor:${displayName}:${rand}`;
+    const userKey = stableUserKeyFromUsername(username || profile?.username || profile?.email || 'User');
+    return `proctor:${displayName}:${userKey}:${rand}`;
   }
   return `student:${displayName}:${clazz}:${rand}`;
 }

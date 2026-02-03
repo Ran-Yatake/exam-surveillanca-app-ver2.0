@@ -58,7 +58,10 @@ export default function ExamineeView({
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [proctorExternalUserId, setProctorExternalUserId] = useState('');
-  const [proctorAttendeeId, setProctorAttendeeId] = useState('');
+  // Multiple proctors support
+  const [proctorsByAttendeeId, setProctorsByAttendeeId] = useState({});
+  const [proctorAttendeeIdByTileId, setProctorAttendeeIdByTileId] = useState({});
+  const [selectedProctorAttendeeId, setSelectedProctorAttendeeId] = useState('');
   const [meetingJoinId, setMeetingJoinId] = useState(''); // external meeting id input by student
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
@@ -73,9 +76,27 @@ export default function ExamineeView({
   const proctorVideoRef = useRef(null); // Remote Proctor View
   const audioRef = useRef(null); // Meeting Audio Output
   const observerRef = useRef(null);
+  const selectedProctorAttendeeIdRef = useRef('');
+  const proctorsByAttendeeIdRef = useRef({});
+  const proctorAttendeeIdByTileIdRef = useRef({});
 
   const myAttendeeId = meetingSession?.configuration?.credentials?.attendeeId || '';
   const showMicOffBadge = meetingSession ? isMuted : !joinWithMic;
+  const knownProctorAttendeeIdsKey = Object.keys(proctorsByAttendeeId)
+    .sort()
+    .join('|');
+
+  useEffect(() => {
+    selectedProctorAttendeeIdRef.current = selectedProctorAttendeeId;
+  }, [selectedProctorAttendeeId]);
+
+  useEffect(() => {
+    proctorsByAttendeeIdRef.current = proctorsByAttendeeId;
+  }, [proctorsByAttendeeId]);
+
+  useEffect(() => {
+    proctorAttendeeIdByTileIdRef.current = proctorAttendeeIdByTileId;
+  }, [proctorAttendeeIdByTileId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
@@ -87,7 +108,7 @@ export default function ExamineeView({
     const onDataMessage = (dataMessage) => {
       const rawText = dataMessage?.text?.();
       const payload = safeJsonParse(rawText);
-      if (!payload || typeof payload.text !== 'string') return;
+      if (!payload) return;
 
       const id = String(payload.id || '');
       if (!id) return;
@@ -98,9 +119,14 @@ export default function ExamineeView({
       const isFromProctor = payload.fromRole === 'proctor';
       if (!isFromProctor) return;
 
-      // Best-effort: prevent spoofed "proctor" messages if we already know the proctor attendeeId.
+      // Best-effort: prevent spoofed "proctor" messages if we already know one or more proctor attendeeIds.
       const senderAttendeeId = dataMessage?.senderAttendeeId || payload.fromAttendeeId || '';
-      if (proctorAttendeeId && senderAttendeeId && senderAttendeeId !== proctorAttendeeId) return;
+      if (knownProctorAttendeeIdsKey && senderAttendeeId) {
+        const knownIds = knownProctorAttendeeIdsKey.split('|').filter(Boolean);
+        if (knownIds.length > 0 && !knownIds.includes(senderAttendeeId)) return;
+      }
+
+      if (typeof payload.text !== 'string') return;
 
       const ok =
         payload.type === 'broadcast' ||
@@ -135,7 +161,39 @@ export default function ExamineeView({
         // ignore
       }
     };
-  }, [meetingSession, myAttendeeId, proctorAttendeeId]);
+  }, [meetingSession, myAttendeeId, knownProctorAttendeeIdsKey]);
+
+  // Keep the displayed/selected proctor info in sync.
+  useEffect(() => {
+    if (!selectedProctorAttendeeId) {
+      setProctorExternalUserId('');
+      try {
+        if (proctorVideoRef.current) {
+          proctorVideoRef.current.srcObject = null;
+        }
+      } catch (_) {
+        // ignore
+      }
+      return;
+    }
+    const p = proctorsByAttendeeId[selectedProctorAttendeeId];
+    if (!p) return;
+    setProctorExternalUserId(p.externalUserId || '');
+  }, [selectedProctorAttendeeId, proctorsByAttendeeId]);
+
+  // When selection changes, re-bind the remote proctor video element.
+  useEffect(() => {
+    if (!meetingSession?.audioVideo) return;
+    if (!selectedProctorAttendeeId) return;
+    const tileId = proctorsByAttendeeId[selectedProctorAttendeeId]?.tileId;
+    if (!tileId) return;
+    if (!proctorVideoRef.current) return;
+    try {
+      meetingSession.audioVideo.bindVideoElement(tileId, proctorVideoRef.current);
+    } catch (_) {
+      // ignore
+    }
+  }, [meetingSession, selectedProctorAttendeeId, proctorsByAttendeeId]);
 
   const sendChatToProctor = () => {
     const text = String(chatDraft || '').trim();
@@ -277,6 +335,16 @@ export default function ExamineeView({
       setIsMuted(false);
       setIsCameraOn(false);
       setProctorExternalUserId('');
+      setProctorsByAttendeeId({});
+      setProctorAttendeeIdByTileId({});
+      setSelectedProctorAttendeeId('');
+      try {
+        if (proctorVideoRef.current) {
+          proctorVideoRef.current.srcObject = null;
+        }
+      } catch (_) {
+        // ignore
+      }
       setMeetingSession(null);
       setStatus('Idle');
     }
@@ -450,19 +518,78 @@ export default function ExamineeView({
           }
 
           // Remote Tiles: Only bind Proctor's video
-          if (!tileState.localTile && tileState.boundExternalUserId) {
+          if (!tileState.localTile && !tileState.isContent && tileState.boundExternalUserId) {
             const externalId = tileState.boundExternalUserId;
             // Check if it is a proctor
             if (String(externalId).startsWith('proctor:') || String(externalId).startsWith('proctor-')) {
-              setProctorExternalUserId(String(externalId));
-              if (tileState.boundAttendeeId) setProctorAttendeeId(tileState.boundAttendeeId);
-              // Bind to Proctor Video Element
-              if (proctorVideoRef.current) {
+              const attendeeId = String(tileState.boundAttendeeId || '').trim();
+              if (!attendeeId) return;
+
+              setProctorsByAttendeeId((prev) => {
+                const existing = prev[attendeeId];
+                const next = {
+                  ...prev,
+                  [attendeeId]: {
+                    attendeeId,
+                    externalUserId: String(externalId),
+                    tileId: tileState.tileId,
+                  },
+                };
+                if (
+                  existing &&
+                  existing.externalUserId === String(externalId) &&
+                  existing.tileId === tileState.tileId
+                ) {
+                  return prev;
+                }
+                return next;
+              });
+
+              setProctorAttendeeIdByTileId((prev) => {
+                const cur = prev[tileState.tileId];
+                if (cur === attendeeId) return prev;
+                return { ...prev, [tileState.tileId]: attendeeId };
+              });
+
+              setSelectedProctorAttendeeId((cur) => {
+                return cur || attendeeId;
+              });
+
+              // Bind to Proctor Video Element only if it matches the selected proctor.
+              const selectedId = selectedProctorAttendeeIdRef.current;
+              const shouldBind = !selectedId || selectedId === attendeeId;
+              if (shouldBind && proctorVideoRef.current) {
                 session.audioVideo.bindVideoElement(tileState.tileId, proctorVideoRef.current);
               }
             }
             // Ideally we ignore other students' tiles here
           }
+        },
+        videoTileWasRemoved: (tileId) => {
+          const removedAttendeeId = proctorAttendeeIdByTileIdRef.current?.[tileId];
+          if (!removedAttendeeId) return;
+
+          setProctorAttendeeIdByTileId((prev) => {
+            if (!prev[tileId]) return prev;
+            const next = { ...prev };
+            delete next[tileId];
+            return next;
+          });
+
+          setProctorsByAttendeeId((prev) => {
+            if (!prev[removedAttendeeId]) return prev;
+            const next = { ...prev };
+            delete next[removedAttendeeId];
+            return next;
+          });
+
+          setSelectedProctorAttendeeId((cur) => {
+            if (cur !== removedAttendeeId) return cur;
+            const remaining = Object.values(proctorsByAttendeeIdRef.current || {}).filter(
+              (p) => p && p.attendeeId && p.attendeeId !== removedAttendeeId,
+            );
+            return remaining[0]?.attendeeId || '';
+          });
         },
         contentShareDidStart: () => {
           setIsScreenSharing(true);
@@ -710,7 +837,7 @@ export default function ExamineeView({
             {/* Right Column: Proctor View */}
             <div className="relative flex-1 overflow-hidden rounded-xl border border-red-500/40 bg-white">
               <div className="h-[310px] flex items-center justify-center">
-                <video ref={proctorVideoRef} className="h-full w-full object-contain" />
+                <video ref={proctorVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
                 {!meetingSession && <div className="absolute text-sm text-slate-600">Proctor video will appear here</div>}
               </div>
               <div className="absolute left-3 top-3 rounded bg-red-600/70 px-3 py-2 text-xs font-bold text-white">

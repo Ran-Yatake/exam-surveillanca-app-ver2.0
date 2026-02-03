@@ -5,9 +5,13 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user_record
-from ..chime_client import _get_or_create_chime_meeting, active_meetings, get_chime_client
+from ..chime_client import (
+    _get_or_create_chime_meeting,
+    active_meetings,
+    get_chime_client,
+)
 from ..db import get_db
-from ..models import ScheduledMeeting
+from ..models import ScheduledMeeting, User
 
 router = APIRouter(tags=["meetings"])
 
@@ -36,23 +40,23 @@ def create_meeting(
     # If the meeting is scheduled, enforce lifecycle via DB.
     scheduled = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == external_id).one_or_none()
     if scheduled is not None:
-        # Creator proctor can start (or re-use) the meeting.
-        if user.get("role") == "proctor" and scheduled.created_by_user_id == user["user"].id:
-            if scheduled.status != "ended":
-                resp = _get_or_create_chime_meeting(
-                    external_meeting_id=scheduled.join_code,
-                    region=scheduled.region,
-                    existing_meeting_id=scheduled.chime_meeting_id,
-                )
-                meeting_obj = resp.get("Meeting") or {}
-                if meeting_obj.get("MeetingId"):
-                    scheduled.chime_meeting_id = meeting_obj.get("MeetingId")
-                scheduled.status = "started"
-                db.add(scheduled)
-                db.commit()
-                return resp
+        # Proctor can start (or re-use) the meeting.
+        if user.get("role") == "proctor":
+            if scheduled.status == "ended":
+                raise HTTPException(status_code=400, detail="Meeting already ended")
 
-            raise HTTPException(status_code=400, detail="Meeting already ended")
+            resp = _get_or_create_chime_meeting(
+                external_meeting_id=scheduled.join_code,
+                region=scheduled.region,
+                existing_meeting_id=scheduled.chime_meeting_id,
+            )
+            meeting_obj = resp.get("Meeting") or {}
+            if meeting_obj.get("MeetingId"):
+                scheduled.chime_meeting_id = meeting_obj.get("MeetingId")
+            scheduled.status = "started"
+            db.add(scheduled)
+            db.commit()
+            return resp
 
         # Examinee (or other users) can join only after started.
         if scheduled.status != "started" or not scheduled.chime_meeting_id:

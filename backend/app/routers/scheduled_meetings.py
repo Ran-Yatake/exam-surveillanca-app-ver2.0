@@ -112,16 +112,11 @@ def list_scheduled_meetings(
     user=Depends(get_current_user_record),
     db: Session = Depends(get_db),
 ):
-    # MVP: proctor can list their own scheduled meetings. examinee gets empty.
+    # MVP: proctor can list scheduled meetings. examinee gets empty.
     if user.get("role") != "proctor":
         return []
 
-    rows = (
-        db.query(ScheduledMeeting)
-        .filter(ScheduledMeeting.created_by_user_id == user["user"].id)
-        .order_by(ScheduledMeeting.created_at.desc())
-        .all()
-    )
+    rows = db.query(ScheduledMeeting).order_by(ScheduledMeeting.created_at.desc()).all()
     return [
         ScheduledMeetingResponse(
             join_code=r.join_code,
@@ -145,8 +140,6 @@ def start_scheduled_meeting(
     row = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == join_code).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Scheduled meeting not found")
-    if row.created_by_user_id != user["user"].id:
-        raise HTTPException(status_code=403, detail="Not allowed")
     if row.status == "ended":
         raise HTTPException(status_code=400, detail="Meeting already ended")
 

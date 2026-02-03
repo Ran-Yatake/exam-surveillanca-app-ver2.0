@@ -68,6 +68,8 @@ export default function ProctorDashboard({
   const [meetingIdCopied, setMeetingIdCopied] = useState(false);
   // Map of studentId -> { cameraTileId?, screenTileId?, externalUserId }
   const [studentsMap, setStudentsMap] = useState({});
+  // Map of proctorAttendeeId -> { attendeeId, externalUserId, cameraTileId? }
+  const [otherProctorsMap, setOtherProctorsMap] = useState({});
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatTo, setChatTo] = useState('all'); // 'all' | attendeeId
@@ -138,6 +140,16 @@ export default function ProctorDashboard({
   })();
 
   const myAttendeeId = meetingSession?.configuration?.credentials?.attendeeId || '';
+
+  const otherProctorsList = Object.values(otherProctorsMap)
+    .filter((p) => p && p.attendeeId && p.attendeeId !== myAttendeeId)
+    .map((p) => ({
+      attendeeId: p.attendeeId,
+      externalUserId: p.externalUserId,
+      displayName: extractDisplayName(p.externalUserId),
+      cameraTileId: p.cameraTileId || null,
+    }))
+    .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), 'ja'));
 
   const resolveStudentNameByAttendeeId = (attendeeId) => {
     if (!attendeeId) return '';
@@ -888,10 +900,42 @@ export default function ProctorDashboard({
           // Hide panels for attendees that have left.
           // (Some Chime SDK versions expose externalUserId in the callback.)
           if (typeof session.audioVideo.realtimeSubscribeToAttendeeIdPresence === 'function') {
+            const selfAttendeeId = session?.configuration?.credentials?.attendeeId || '';
             const cb = (attendeeId, present, externalUserId) => {
               if (!externalUserId) return;
               const baseExternalId = String(externalUserId).split('#')[0];
-              if (!baseExternalId.startsWith('student:') && !baseExternalId.startsWith('student-')) return;
+
+              const isStudent = baseExternalId.startsWith('student:') || baseExternalId.startsWith('student-');
+              const isProctor = baseExternalId.startsWith('proctor:') || baseExternalId.startsWith('proctor-');
+
+              if (isProctor) {
+                if (attendeeId && attendeeId === selfAttendeeId) return;
+                if (!present) {
+                  setOtherProctorsMap((prev) => {
+                    if (!prev?.[attendeeId]) return prev;
+                    const next = { ...(prev || {}) };
+                    delete next[attendeeId];
+                    return next;
+                  });
+                  return;
+                }
+                setOtherProctorsMap((prev) => {
+                  const curr = prev?.[attendeeId];
+                  if (curr && curr.externalUserId === baseExternalId && curr.attendeeId === attendeeId) return prev;
+                  return {
+                    ...(prev || {}),
+                    [attendeeId]: {
+                      ...(curr || {}),
+                      attendeeId,
+                      externalUserId: baseExternalId,
+                    },
+                  };
+                });
+                return;
+              }
+
+              if (!isStudent) return;
+
               const stableKey = stableStudentKeyFromExternalUserId(baseExternalId);
 
               if (!present) {
@@ -963,6 +1007,50 @@ export default function ProctorDashboard({
           // Identify base ID. Content share usually has suffix like "#content"
           const isContent = tileState.isContent;
           const baseExternalId = String(externalId || '').split('#')[0];
+
+          const isStudent = baseExternalId.startsWith('student:') || baseExternalId.startsWith('student-');
+          const isProctor = baseExternalId.startsWith('proctor:') || baseExternalId.startsWith('proctor-');
+
+          // Other proctors: track camera tiles only and render next to self-view.
+          if (isProctor) {
+            const attendeeId = String(tileState.boundAttendeeId || '').trim();
+            if (!attendeeId) return;
+            if (attendeeId === (session?.configuration?.credentials?.attendeeId || '')) return;
+            if (isContent) return;
+
+            setOtherProctorsMap((prev) => {
+              const curr = prev?.[attendeeId];
+              const next = {
+                ...(prev || {}),
+                [attendeeId]: {
+                  ...(curr || {}),
+                  attendeeId,
+                  externalUserId: baseExternalId,
+                  cameraTileId: tileState.tileId,
+                },
+              };
+              if (
+                curr &&
+                curr.externalUserId === baseExternalId &&
+                curr.cameraTileId === tileState.tileId &&
+                curr.attendeeId === attendeeId
+              ) {
+                return prev;
+              }
+              return next;
+            });
+
+            setTimeout(() => {
+              const videoEl = videoElements.current[tileState.tileId];
+              if (videoEl) {
+                session.audioVideo.bindVideoElement(tileState.tileId, videoEl);
+              }
+            }, 100);
+            return;
+          }
+
+          if (!isStudent) return;
+
           const stableKey = stableStudentKeyFromExternalUserId(baseExternalId);
 
           // Subscribe to audio mute state (volume indicator) for this attendee.
@@ -1030,6 +1118,19 @@ export default function ProctorDashboard({
               // If student has no feeds, maybe remove them? Keeping for now to show status.
             }
             return newState;
+          });
+
+          setOtherProctorsMap((prev) => {
+            if (!prev) return prev;
+            let changed = false;
+            const next = { ...prev };
+            for (const attendeeId of Object.keys(next)) {
+              if (next[attendeeId]?.cameraTileId === tileId) {
+                next[attendeeId] = { ...next[attendeeId], cameraTileId: null };
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
           });
         },
       };
@@ -1235,7 +1336,7 @@ export default function ProctorDashboard({
 
       <div className="flex flex-col gap-4">
         {/* Proctor's Local View (Self) - shown above student panels */}
-        <div className="flex justify-start">
+        <div className="flex flex-wrap items-start gap-4">
           <div className="w-full lg:w-[220px]">
             <div className="relative overflow-hidden rounded-lg border border-indigo-500/50 bg-slate-50">
               <div className="aspect-[4/3]">
@@ -1259,6 +1360,38 @@ export default function ProctorDashboard({
               </div>
             </div>
           </div>
+
+          {otherProctorsList.map((p) => (
+            <div key={p.attendeeId} className="w-full lg:w-[220px]">
+              <div className="relative overflow-hidden rounded-lg border border-rose-500/50 bg-slate-50">
+                <div className="aspect-[4/3]">
+                  {p.cameraTileId ? (
+                    <video
+                      ref={(el) => {
+                        if (el) videoElements.current[p.cameraTileId] = el;
+                        if (el && meetingSession) meetingSession.audioVideo.bindVideoElement(p.cameraTileId, el);
+                      }}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-slate-950/60 text-sm font-semibold text-white">
+                      Proctor Camera Off
+                    </div>
+                  )}
+
+                  <div className="absolute left-2 top-2 rounded bg-rose-600 px-2 py-1 text-[10px] font-bold text-white">
+                    PROCTOR
+                  </div>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-slate-950/70 px-2 py-1 text-center text-xs font-medium text-slate-100">
+                  {p.displayName || 'Proctor'}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div>
