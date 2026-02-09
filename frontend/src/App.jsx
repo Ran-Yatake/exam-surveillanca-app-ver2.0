@@ -141,6 +141,9 @@ function App() {
     joinWithMic: true,
     prejoinStream: null,
   });
+
+  const [guestExamineeDisplayName, setGuestExamineeDisplayName] = useState('');
+  const [examineeJoinLink, setExamineeJoinLink] = useState(null); // { joinCode, displayName }
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -161,6 +164,37 @@ function App() {
         console.log("No active session found");
     });
   }, []);
+
+  // Deep link: /?join=JOINCODE&name=DISPLAYNAME
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const joinCode = String(params.get('join') || '').trim();
+      const dn = String(params.get('name') || '').trim();
+      if (!joinCode) return;
+      setExamineeJoinLink({ joinCode, displayName: dn });
+    } catch (_) {
+      // ignore
+    }
+  }, []);
+
+  // Consume deep link: guest examinee -> open prejoin with meeting id prefilled.
+  useEffect(() => {
+    if (!examineeJoinLink?.joinCode) return;
+
+    // If already logged in as proctor, do nothing.
+    if (isLoggedIn && role === 'proctor') return;
+
+    if (!isLoggedIn) {
+      enterGuestExaminee();
+      setGuestExamineeDisplayName(String(examineeJoinLink.displayName || '').trim());
+      setPage('dashboard');
+    } else {
+      // Logged in user: only auto-open if they are (or will be) examinee.
+      if (role === 'examinee') setPage('dashboard');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examineeJoinLink, isLoggedIn, role]);
 
   // Load role from backend (MySQL) after login and auto-route.
   useEffect(() => {
@@ -247,6 +281,31 @@ function App() {
       }
   };
 
+  const enterGuestExaminee = () => {
+    clearAuthToken();
+    try {
+      signOut();
+    } catch (_) {
+      // ignore
+    }
+    setIsLoggedIn(false);
+    setRole('examinee');
+    setUserRole('examinee');
+    setPage('dashboard');
+    const guestName = `guest-${Math.random().toString(16).slice(2, 8)}`;
+    setUsername(guestName);
+    setDisplayName('');
+    setGuestExamineeDisplayName('');
+    setError('');
+  };
+
+  const goToLogin = () => {
+    setRole(null);
+    setUserRole(null);
+    setPage('dashboard');
+    setError('');
+  };
+
   if (isNewPasswordRequired) {
       return (
           <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -283,7 +342,7 @@ function App() {
       );
   }
 
-  if (!isLoggedIn) {
+  if (!isLoggedIn && !role) {
       return (
           <div className="min-h-screen bg-slate-50 text-slate-900">
             <AuthHeader />
@@ -322,13 +381,23 @@ function App() {
                     Sign In
                   </button>
                 </form>
+
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={enterGuestExaminee}
+                    className="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                  >
+                    ゲストとして受験生で続行
+                  </button>
+                </div>
               </div>
             </main>
           </div>
       );
   }
 
-  if (!role) {
+  if (isLoggedIn && !role) {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <div className="mx-auto w-full max-w-4xl px-4 py-8">
@@ -393,12 +462,28 @@ function App() {
               </>
             )}
 
-            <button
-              onClick={() => { setIsLoggedIn(false); setRole(null); signOut(); clearAuthToken(); }}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Sign Out
-            </button>
+            {role === 'examinee' && !isLoggedIn && (
+              <button
+                onClick={goToLogin}
+                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+              >
+                ログイン
+              </button>
+            )}
+
+            {isLoggedIn && (
+              <button
+                onClick={() => {
+                  setIsLoggedIn(false);
+                  setRole(null);
+                  signOut();
+                  clearAuthToken();
+                }}
+                className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Sign Out
+              </button>
+            )}
           </div>
         </header>
 
@@ -433,6 +518,11 @@ function App() {
         <ExamineeDashboardHome
           onGoMeeting={(opts) => {
             const joinCode = String(opts?.joinCode || '').trim();
+            const guestDn = String(opts?.displayName || '').trim();
+
+            if (!isLoggedIn) {
+              setGuestExamineeDisplayName(guestDn);
+            }
 
             if (opts?.autoJoin) {
               setExamineeAutoJoin({
@@ -455,6 +545,18 @@ function App() {
             setPage('meeting');
           }}
           onGoProfile={() => setPage('profile')}
+          showProfileButton={isLoggedIn}
+          autoOpenPrejoin={Boolean(examineeJoinLink?.joinCode)}
+          initialMeetingId={String(examineeJoinLink?.joinCode || '')}
+          initialDisplayName={String(examineeJoinLink?.displayName || '')}
+          onAutoOpenPrejoinConsumed={() => {
+            setExamineeJoinLink(null);
+            try {
+              window.history.replaceState(null, '', window.location.pathname);
+            } catch (_) {
+              // ignore
+            }
+          }}
         />
       )}
 
@@ -493,6 +595,8 @@ function App() {
       {page === 'meeting' && role === 'examinee' && (
         <ExamineeView
           currentUsername={username}
+          isGuest={!isLoggedIn}
+          guestDisplayName={guestExamineeDisplayName}
           onBack={() => {
             setExamineeAutoJoin({
               enabled: false,
@@ -501,6 +605,7 @@ function App() {
               joinWithMic: true,
               prejoinStream: null,
             });
+            setGuestExamineeDisplayName('');
             setPage('dashboard');
           }}
           autoJoin={Boolean(examineeAutoJoin?.enabled)}

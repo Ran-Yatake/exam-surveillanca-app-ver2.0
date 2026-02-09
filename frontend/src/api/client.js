@@ -58,6 +58,25 @@ export async function callApi(endpoint, body) {
   return res.json();
 }
 
+export async function callApiNoAuth(endpoint, body) {
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`API Error: ${res.status}${detail}`);
+  }
+
+  return res.json();
+}
+
 export async function callApiPatch(endpoint, body) {
   const headers = {
     'Content-Type': 'application/json',
@@ -138,6 +157,31 @@ export async function createAttendee(meetingId, userId) {
   return callApi(`/meetings/${meetingId}/attendees`, { external_user_id: userId });
 }
 
+export async function guestJoinMeeting(joinCode, externalUserId, region) {
+  return callApiNoAuth('/guest/join', {
+    external_meeting_id: joinCode,
+    external_user_id: externalUserId,
+    region: region || 'us-east-1',
+  });
+}
+
+export async function attendanceJoin({ joinCode, chimeMeetingId, attendeeId, externalUserId, role }) {
+  return callApiNoAuth('/attendance/join', {
+    join_code: String(joinCode || '').trim(),
+    chime_meeting_id: chimeMeetingId ? String(chimeMeetingId) : null,
+    attendee_id: String(attendeeId || '').trim(),
+    external_user_id: externalUserId ? String(externalUserId) : null,
+    role: String(role || 'examinee'),
+  });
+}
+
+export async function attendanceLeave({ joinCode, attendeeId }) {
+  return callApiNoAuth('/attendance/leave', {
+    join_code: String(joinCode || '').trim(),
+    attendee_id: String(attendeeId || '').trim(),
+  });
+}
+
 export async function createScheduledMeeting(body) {
   return callApi('/scheduled-meetings', body);
 }
@@ -186,4 +230,9 @@ export async function deleteUser(email) {
 export async function updateUser(email, body) {
   const encoded = encodeURIComponent(String(email || '').trim());
   return callApiPatch(`/users/${encoded}`, body);
+}
+
+export async function listAttendanceSessions(joinCode) {
+  const code = encodeURIComponent(String(joinCode || '').trim());
+  return callApiGet(`/attendance/${code}`);
 }

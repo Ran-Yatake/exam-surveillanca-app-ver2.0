@@ -15,8 +15,12 @@ export default function PreJoinExamineeModal({
   error,
   onClose,
   onStart,
+  requireDisplayName,
+  initialDisplayName,
+  initialMeetingId,
 }) {
   const [meetingId, setMeetingId] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
 
@@ -68,6 +72,9 @@ export default function PreJoinExamineeModal({
   useEffect(() => {
     if (!open) return () => {};
 
+    setMeetingId(String(initialMeetingId || '').trim());
+    setDisplayName(String(initialDisplayName || '').trim());
+
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (busy) return;
@@ -98,6 +105,8 @@ export default function PreJoinExamineeModal({
   if (!open) return null;
 
   const trimmedId = String(meetingId || '').trim();
+  const trimmedDisplayName = String(displayName || '').trim();
+  const canStart = Boolean(trimmedId) && (!requireDisplayName || Boolean(trimmedDisplayName));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -159,6 +168,21 @@ export default function PreJoinExamineeModal({
               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
 
+            {requireDisplayName && (
+              <div className="mt-4">
+                <label className="block text-xs font-semibold text-slate-700">表示名</label>
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="例：山田 太郎"
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                {!trimmedDisplayName && (
+                  <div className="mt-1 text-xs text-slate-600">ゲスト参加では表示名の入力が必要です</div>
+                )}
+              </div>
+            )}
+
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -179,18 +203,19 @@ export default function PreJoinExamineeModal({
                 type="button"
                 onClick={() => {
                   if (busy) return;
-                  if (!trimmedId) return;
+                  if (!canStart) return;
                   // do NOT stop tracks; hand over to meeting page
                   detachVideo();
                   onStart?.({
                     meetingId: trimmedId,
+                    displayName: trimmedDisplayName,
                     joinWithCamera: Boolean(joinWithCamera),
                     joinWithMic: Boolean(joinWithMic),
                     prejoinStream: streamRef.current || null,
                     autoJoin: true,
                   });
                 }}
-                disabled={busy || !trimmedId}
+                disabled={busy || !canStart}
                 className="ml-0 sm:ml-auto w-full sm:w-auto rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy ? '開始中...' : '開始'}

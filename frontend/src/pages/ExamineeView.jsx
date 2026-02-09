@@ -7,7 +7,14 @@ import {
   MeetingSessionConfiguration,
 } from 'amazon-chime-sdk-js';
 
-import { createAttendee, createMeeting, fetchProfile } from '../api/client.js';
+import {
+  attendanceJoin,
+  attendanceLeave,
+  createAttendee,
+  createMeeting,
+  fetchProfile,
+  guestJoinMeeting,
+} from '../api/client.js';
 import ChatPanel from '../components/chat/ChatPanel.jsx';
 import ExamineeChatMessage from '../components/chat/messages/ExamineeChatMessage.jsx';
 
@@ -37,6 +44,8 @@ function makeMessageId() {
 
 export default function ExamineeView({
   currentUsername,
+  isGuest,
+  guestDisplayName,
   onBack,
   autoJoin,
   initialMeetingJoinId,
@@ -79,6 +88,9 @@ export default function ExamineeView({
   const selectedProctorAttendeeIdRef = useRef('');
   const proctorsByAttendeeIdRef = useRef({});
   const proctorAttendeeIdByTileIdRef = useRef({});
+  const attendanceJoinCodeRef = useRef('');
+  const attendanceAttendeeIdRef = useRef('');
+  const attendanceLeaveSentRef = useRef(false);
 
   const myAttendeeId = meetingSession?.configuration?.credentials?.attendeeId || '';
   const showMicOffBadge = meetingSession ? isMuted : !joinWithMic;
@@ -292,6 +304,16 @@ export default function ExamineeView({
     const session = meetingSession;
     if (!session) return;
 
+    const joinCode = String(attendanceJoinCodeRef.current || '').trim();
+    const attendeeId =
+      String(attendanceAttendeeIdRef.current || '').trim() ||
+      String(session?.configuration?.credentials?.attendeeId || '').trim();
+    if (joinCode && attendeeId && !attendanceLeaveSentRef.current) {
+      attendanceLeaveSentRef.current = true;
+      // Best-effort: don't block UI on network.
+      attendanceLeave({ joinCode, attendeeId }).catch(() => {});
+    }
+
     try {
       try {
         session.audioVideo.stopContentShare();
@@ -349,6 +371,54 @@ export default function ExamineeView({
       setStatus('Idle');
     }
   };
+
+  const bestEffortSendLeave = () => {
+    if (attendanceLeaveSentRef.current) return;
+    const joinCode = String(attendanceJoinCodeRef.current || '').trim();
+    const attendeeId = String(attendanceAttendeeIdRef.current || '').trim();
+    if (!joinCode || !attendeeId) return;
+    attendanceLeaveSentRef.current = true;
+
+    const url = '/api/attendance/leave';
+    const payload = JSON.stringify({ join_code: joinCode, attendee_id: attendeeId });
+
+    try {
+      if (navigator?.sendBeacon) {
+        const blob = new Blob([payload], { type: 'application/json' });
+        navigator.sendBeacon(url, blob);
+        return;
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  // Record leave on tab close / navigation (best-effort).
+  useEffect(() => {
+    const onPageHide = () => bestEffortSendLeave();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') bestEffortSendLeave();
+    };
+
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleMute = () => {
     if (!meetingSession) return;
@@ -419,6 +489,15 @@ export default function ExamineeView({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (isGuest) {
+      setProfile(null);
+      setProfileLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     fetchProfile()
       .then((p) => {
         if (!cancelled) setProfile(p);
@@ -432,7 +511,7 @@ export default function ExamineeView({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isGuest]);
 
   // Show self-view as soon as examinee enters this page (before joining).
   useEffect(() => {
@@ -456,13 +535,45 @@ export default function ExamineeView({
       }
       setStatus('Initializing...');
       const meetingId = joinId;
-      const userId = makeExternalUserIdWithFallback('examinee', profile, currentUsername);
+      const guestDn = String(guestDisplayName || '').trim();
+      const effectiveProfile = isGuest
+        ? { display_name: guestDn || 'User', class_name: 'guest' }
+        : profile;
+      const effectiveUsername = isGuest ? guestDn || currentUsername : currentUsername;
 
-      // 1. Create/Get Meeting
-      const meetingResponse = await createMeeting(meetingId);
+      const userId = makeExternalUserIdWithFallback('examinee', effectiveProfile, effectiveUsername);
 
-      // 2. Create Attendee
-      const attendeeResponse = await createAttendee(meetingResponse.Meeting.MeetingId, userId);
+      let meetingResponse;
+      let attendeeResponse;
+
+      if (isGuest) {
+        // Guest users cannot call authenticated endpoints.
+        const joinResponse = await guestJoinMeeting(meetingId, userId);
+        meetingResponse = { Meeting: joinResponse.Meeting };
+        attendeeResponse = { Attendee: joinResponse.Attendee };
+      } else {
+        // 1. Create/Get Meeting
+        meetingResponse = await createMeeting(meetingId);
+
+        // 2. Create Attendee
+        attendeeResponse = await createAttendee(meetingResponse.Meeting.MeetingId, userId);
+      }
+
+      // Attendance: record join immediately after attendee issuance.
+      const chimeMeetingId = meetingResponse?.Meeting?.MeetingId || '';
+      const attendeeId = attendeeResponse?.Attendee?.AttendeeId || '';
+      attendanceJoinCodeRef.current = meetingId;
+      attendanceAttendeeIdRef.current = String(attendeeId || '').trim();
+      attendanceLeaveSentRef.current = false;
+      if (meetingId && attendeeId) {
+        attendanceJoin({
+          joinCode: meetingId,
+          chimeMeetingId,
+          attendeeId,
+          externalUserId: userId,
+          role: 'examinee',
+        }).catch(() => {});
+      }
 
       // 3. Initialize Chime Session
       const logger = new ConsoleLogger('ChimeLogger', LogLevel.INFO);

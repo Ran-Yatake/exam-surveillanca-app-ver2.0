@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { listAttendanceSessions } from '../../api/client.js';
+
 const TIME_15MIN_OPTIONS = (() => {
   const out = [];
   for (let h = 0; h < 24; h++) {
@@ -51,6 +53,68 @@ function formatScheduleTime(iso) {
   }
 }
 
+function safeText(v) {
+  return String(v == null ? '' : v);
+}
+
+function escapeCsv(value) {
+  const s = safeText(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function decodeBase64UrlUtf8(token) {
+  const raw = String(token || '');
+  if (!raw) return '';
+
+  // Browser API availability varies (older Safari / embedded webviews).
+  if (typeof atob !== 'function') return raw;
+
+  try {
+    const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (b64.length % 4)) % 4;
+    const padded = b64 + '='.repeat(padLen);
+    const binary = atob(padded);
+
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    if (typeof TextDecoder === 'function') {
+      return new TextDecoder().decode(bytes);
+    }
+
+    // Fallback: percent-encode and decode as UTF-8.
+    let percent = '';
+    for (let i = 0; i < bytes.length; i++) percent += `%${bytes[i].toString(16).padStart(2, '0')}`;
+    return decodeURIComponent(percent);
+  } catch (_) {
+    return raw;
+  }
+}
+
+function toDisplayNameFromExternalUserId(externalUserId) {
+  const base = String(externalUserId || '').split('#')[0];
+  const parts = base.split(':');
+  if (parts.length >= 2 && (parts[0] === 'student' || parts[0] === 'proctor')) {
+    const token = parts[1] || '';
+    if (!token) return base;
+    const decoded = decodeBase64UrlUtf8(token);
+    return decoded || token;
+  }
+  if (base.startsWith('student-')) return base;
+  if (base.startsWith('proctor-')) return base;
+  return base;
+}
+
+function formatIsoLocal(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch (_) {
+    return String(iso);
+  }
+}
+
 export default function ScheduledMeetingDetailModal({
   open,
   meeting,
@@ -66,13 +130,35 @@ export default function ScheduledMeetingDetailModal({
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [localError, setLocalError] = useState('');
+  const [copyState, setCopyState] = useState(''); // '' | 'copied' | 'failed'
+  const [attendanceRows, setAttendanceRows] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState('');
 
   const timeListId = useMemo(() => `schedule-time-15min-${Math.random().toString(16).slice(2)}`, []);
+
+  const title = meeting?.title || '（無題）';
+  const teacher = meeting?.teacher_name || '—';
+  const scheduledAt = formatScheduleTime(meeting?.scheduled_start_at);
+  const status = meeting?.status || '—';
+  const joinCode = meeting?.join_code || '';
+
+  const joinUrl = (() => {
+    const code = String(joinCode || '').trim();
+    if (!code) return '';
+    try {
+      return `${window.location.origin}/?join=${encodeURIComponent(code)}`;
+    } catch (_) {
+      return `/?join=${encodeURIComponent(code)}`;
+    }
+  })();
 
   useEffect(() => {
     if (!open) return;
     setIsEditing(false);
     setLocalError('');
+    setCopyState('');
+    setAttendanceError('');
     setEditTitle(String(meeting?.title || ''));
     setEditTeacher(String(meeting?.teacher_name || ''));
     setEditDate(toLocalDateInput(meeting?.scheduled_start_at));
@@ -93,13 +179,107 @@ export default function ScheduledMeetingDetailModal({
     };
   }, [open, busy, onClose]);
 
+  const refreshAttendance = async () => {
+    const code = String(joinCode || '').trim();
+    if (!code) return;
+
+    setAttendanceLoading(true);
+    setAttendanceError('');
+    try {
+      const res = await listAttendanceSessions(code);
+      setAttendanceRows(Array.isArray(res) ? res : []);
+    } catch (e) {
+      setAttendanceRows([]);
+      setAttendanceError(e?.message || '参加ログの取得に失敗しました');
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (!joinCode) return;
+    refreshAttendance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, joinCode]);
+
   if (!open) return null;
 
-  const title = meeting?.title || '（無題）';
-  const teacher = meeting?.teacher_name || '—';
-  const scheduledAt = formatScheduleTime(meeting?.scheduled_start_at);
-  const status = meeting?.status || '—';
-  const joinCode = meeting?.join_code || '';
+  const downloadAttendanceCsv = () => {
+    const code = String(joinCode || '').trim();
+    if (!code) return;
+
+    const rows = Array.isArray(attendanceRows) ? attendanceRows : [];
+    const header = [
+      'join_code',
+      'role',
+      'display_name',
+      'external_user_id',
+      'attendee_id',
+      'joined_at',
+      'left_at',
+      'duration_seconds',
+    ];
+
+    const lines = [header.map(escapeCsv).join(',')];
+    for (const r of rows) {
+      const externalUserId = r?.external_user_id || '';
+      const displayName = toDisplayNameFromExternalUserId(externalUserId);
+      const line = [
+        r?.join_code || code,
+        r?.role || '',
+        displayName,
+        externalUserId,
+        r?.attendee_id || '',
+        r?.joined_at || '',
+        r?.left_at || '',
+        r?.duration_seconds ?? '',
+      ];
+      lines.push(line.map(escapeCsv).join(','));
+    }
+
+    // Add UTF-8 BOM for Excel compatibility (JP env).
+    const csvText = `\uFEFF${lines.join('\n')}\n`;
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}-${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}`;
+    a.download = `attendance-${code}-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const copyJoinUrl = async () => {
+    const text = String(joinUrl || '').trim();
+    if (!text) return;
+    setCopyState('');
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (!ok) throw new Error('copy failed');
+      }
+      setCopyState('copied');
+      setTimeout(() => setCopyState(''), 2000);
+    } catch (_) {
+      setCopyState('failed');
+      setTimeout(() => setCopyState(''), 2000);
+    }
+  };
 
   return (
     <div
@@ -152,6 +332,27 @@ export default function ScheduledMeetingDetailModal({
                 <div className="text-slate-800 break-words">{status}</div>
                 <div className="text-slate-500">ID</div>
                 <div className="text-slate-800 break-words">{joinCode || '—'}</div>
+
+                <div className="text-slate-500">参加URL</div>
+                <div className="text-slate-800 break-words">
+                  {joinUrl ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="min-w-0 flex-1 text-xs text-slate-800 break-all">{joinUrl}</div>
+                      <button
+                        type="button"
+                        onClick={copyJoinUrl}
+                        disabled={busy}
+                        className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        コピー
+                      </button>
+                      {copyState === 'copied' && <span className="text-xs font-semibold text-emerald-700">コピーしました</span>}
+                      {copyState === 'failed' && <span className="text-xs font-semibold text-rose-700">コピー失敗</span>}
+                    </div>
+                  ) : (
+                    '—'
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -222,6 +423,69 @@ export default function ScheduledMeetingDetailModal({
 
           {(localError || error) && <p className="text-sm text-red-600">{localError || error}</p>}
         </div>
+
+        {!isEditing && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-slate-900">参加ログ</div>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshAttendance}
+                  disabled={attendanceLoading || busy || !joinCode}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {attendanceLoading ? '取得中...' : '更新'}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadAttendanceCsv}
+                  disabled={attendanceLoading || busy || !joinCode}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  CSV出力
+                </button>
+              </div>
+            </div>
+
+            {attendanceError && <div className="mt-2 text-sm font-semibold text-rose-600">{attendanceError}</div>}
+
+            <div className="mt-3 overflow-x-auto">
+              {Array.isArray(attendanceRows) && attendanceRows.length > 0 ? (
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr className="text-left text-xs font-semibold text-slate-600">
+                      <th className="border-b border-slate-200 pb-2 pr-3">表示名</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">ロール</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">入室</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">退室</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">参加(秒)</th>
+                      <th className="border-b border-slate-200 pb-2">AttendeeId</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendanceRows.map((r) => {
+                      const externalUserId = r?.external_user_id || '';
+                      const displayName = toDisplayNameFromExternalUserId(externalUserId);
+                      return (
+                        <tr key={`${r?.id || ''}-${r?.attendee_id || ''}`} className="text-sm text-slate-800">
+                          <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{displayName || '—'}</td>
+                          <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{r?.role || '—'}</td>
+                          <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{formatIsoLocal(r?.joined_at)}</td>
+                          <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{formatIsoLocal(r?.left_at)}</td>
+                          <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{r?.duration_seconds ?? '—'}</td>
+                          <td className="border-b border-slate-100 py-2 text-xs text-slate-700 break-all">{r?.attendee_id || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="text-sm text-slate-600">参加ログがありません。</div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-5 flex items-center justify-end gap-2">
           <button

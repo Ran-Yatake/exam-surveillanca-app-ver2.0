@@ -41,3 +41,31 @@ class ScheduledMeeting(Base):
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class MeetingAttendanceSession(Base):
+    __tablename__ = "meeting_attendance_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # External meeting join code (ScheduledMeeting.join_code) or legacy external meeting id
+    join_code = Column(String(64), index=True, nullable=False)
+
+    # Chime MeetingId (not stable across recreations; stored for reference)
+    chime_meeting_id = Column(String(128), index=True, nullable=True)
+
+    # Chime AttendeeId (unique per join)
+    attendee_id = Column(String(128), index=True, nullable=False)
+
+    # Chime ExternalUserId (contains display name token)
+    external_user_id = Column(String(512), index=True, nullable=True)
+
+    # 'examinee' | 'proctor' (MVP: record what client reports)
+    role = Column(String(32), index=True, nullable=False, default="examinee")
+
+    joined_at = Column(DateTime, nullable=False, server_default=func.now())
+    left_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

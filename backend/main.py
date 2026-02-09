@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
+from app.routers.attendance import router as attendance_router
 from app.routers.meetings import router as meetings_router
 from app.routers.profile import router as profile_router
 from app.routers.root import router as root_router
@@ -33,6 +34,7 @@ app.include_router(profile_router)
 app.include_router(scheduled_meetings_router)
 app.include_router(users_router)
 app.include_router(meetings_router)
+app.include_router(attendance_router)
 
 if __name__ == "__main__":
     import uvicorn
