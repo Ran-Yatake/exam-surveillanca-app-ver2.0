@@ -9,7 +9,6 @@ services:
     volumes:
       - ./dbdata:/var/lib/mysql
     ports:
-      # If your host OS already uses 3306 (e.g. local MySQL), keep it from colliding.
       - "3306:3306"
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]

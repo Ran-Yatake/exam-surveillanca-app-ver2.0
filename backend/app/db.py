@@ -112,3 +112,42 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE scheduled_meetings ADD COLUMN teacher_name VARCHAR(255) NULL"))
     except Exception as e:
         print(f"Warning: failed to ensure scheduled_meetings columns: {e}")
+
+    # Seed dev-friendly default users (idempotent).
+    # Note: the app's role vocabulary is 'proctor' | 'examinee'.
+    try:
+        from .models import User
+
+        seed_users = [
+            {
+                "email": "fukukaranimube+proctor@gmail.com",
+                "role": "proctor",
+                "user_name": "山田太郎",
+            },
+            {
+                "email": "fukukaranimube+student@gmail.com",
+                # System uses 'examinee' for students.
+                "role": "examinee",
+                "user_name": "田中花子",
+            },
+        ]
+
+        with SessionLocal.begin() as db:
+            for u in seed_users:
+                email = str(u.get("email") or "").strip().lower()
+                role = str(u.get("role") or "").strip() or "examinee"
+                user_name = (str(u.get("user_name") or "").strip() or None)
+
+                if not email:
+                    continue
+
+                record = db.query(User).filter(User.email == email).one_or_none()
+                if record is None:
+                    db.add(User(email=email, role=role, user_name=user_name))
+                else:
+                    # Don't overwrite existing role/name; only fill missing display name.
+                    if record.user_name is None and user_name is not None:
+                        record.user_name = user_name
+                        db.add(record)
+    except Exception as e:
+        print(f"Warning: failed to seed default users: {e}")
