@@ -88,9 +88,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
 
 def _payload_username(payload: dict) -> str:
-    # Prefer email as the stable app-level identifier.
-    # In some Cognito setups, users may sign in with email alias but `cognito:username`
-    # can differ from the email, which would otherwise create duplicate DB records.
+
     email = (payload.get("email") or "").strip().lower()
     if email:
         return email
@@ -106,7 +104,6 @@ def get_current_user_record(
 ):
     email = _payload_username(user_payload)
 
-    # Allow bootstrap of proctor users via env (optional)
     default_proctors = {u.strip().lower() for u in os.getenv("DEFAULT_PROCTOR_USERS", "").split(",") if u.strip()}
     default_role = "proctor" if email.lower() in default_proctors else "examinee"
 
@@ -119,7 +116,6 @@ def get_current_user_record(
 
     return {
         "payload": user_payload,
-        # Keep response key as 'username' for API compatibility; value is email.
         "username": record.email,
         "role": record.role,
         "user": record,

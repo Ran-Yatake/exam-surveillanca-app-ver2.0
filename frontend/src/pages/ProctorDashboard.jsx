@@ -72,8 +72,8 @@ export default function ProctorDashboard({
   const [otherProctorsMap, setOtherProctorsMap] = useState({});
   const [chatMessages, setChatMessages] = useState([]);
   const [chatDraft, setChatDraft] = useState('');
-  const [chatTo, setChatTo] = useState('all'); // 'all' | attendeeId
-  const [chatUnreadByKey, setChatUnreadByKey] = useState({}); // { [key: 'all' | attendeeId]: number }
+  const [chatTo, setChatTo] = useState('all'); // 'all' | stableKey
+  const [chatUnreadByKey, setChatUnreadByKey] = useState({}); // { [key: 'all' | stableKey]: number }
   const [chatNotice, setChatNotice] = useState('');
   const chatSeenIdsRef = useRef(new Set());
   const chatToRef = useRef('all');
@@ -116,26 +116,59 @@ export default function ProctorDashboard({
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
 
-  const chatStudentTabs = (() => {
-    const byId = new Map();
-
+  const activeStudentByStableKey = (() => {
+    const map = new Map(); // stableKey -> { attendeeId, externalUserId, displayName }
     for (const s of studentsList) {
-      byId.set(s.attendeeId, s.displayName);
+      const key = stableStudentKeyFromExternalUserId(s.externalUserId);
+      if (!key) continue;
+      map.set(key, {
+        attendeeId: s.attendeeId,
+        externalUserId: s.externalUserId,
+        displayName: s.displayName,
+      });
+    }
+    return map;
+  })();
+
+  const stableKeyFromAttendeeId = (attendeeId) => {
+    const id = String(attendeeId || '').trim();
+    if (!id) return '';
+    for (const student of Object.values(studentsMap)) {
+      if (student?.attendeeId === id && student?.externalUserId) {
+        return stableStudentKeyFromExternalUserId(student.externalUserId);
+      }
+    }
+    return id;
+  };
+
+  const resolveStudentNameByStableKey = (stableKey) => {
+    const k = String(stableKey || '').trim();
+    if (!k || k === 'all') return '';
+    const active = activeStudentByStableKey.get(k);
+    if (active?.displayName) return active.displayName;
+    // If key is actually an attendeeId (fallback), try lookup.
+    return resolveStudentNameByAttendeeId(k) || k;
+  };
+
+  const chatStudentTabs = (() => {
+    const byKey = new Map(); // stableKey -> displayName
+
+    for (const [k, v] of activeStudentByStableKey.entries()) {
+      byKey.set(k, v?.displayName || k);
     }
 
-    // Include students who have chat history but are no longer in studentsMap.
+    // Include students who have chat history but are no longer active.
     for (const m of chatMessages) {
-      if (m?.type !== 'direct') continue;
-      if (m.fromRole === 'examinee' && m.fromAttendeeId) {
-        if (!byId.has(m.fromAttendeeId)) byId.set(m.fromAttendeeId, resolveStudentNameByAttendeeId(m.fromAttendeeId));
-      }
-      if (m.fromRole === 'proctor' && m.toRole === 'examinee' && m.toAttendeeId) {
-        if (!byId.has(m.toAttendeeId)) byId.set(m.toAttendeeId, resolveStudentNameByAttendeeId(m.toAttendeeId));
+      const convKey = String(m?.convKey || '').trim();
+      if (!convKey || convKey === 'all') continue;
+      if (!byKey.has(convKey)) {
+        const dn = String(m?.peerDisplayName || '').trim() || resolveStudentNameByStableKey(convKey);
+        byKey.set(convKey, dn || convKey);
       }
     }
 
-    return Array.from(byId.entries())
-      .map(([attendeeId, displayName]) => ({ attendeeId, displayName }))
+    return Array.from(byKey.entries())
+      .map(([stableKey, displayName]) => ({ stableKey, displayName }))
       .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), 'ja'));
   })();
 
@@ -151,25 +184,20 @@ export default function ProctorDashboard({
     }))
     .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), 'ja'));
 
-  const resolveStudentNameByAttendeeId = (attendeeId) => {
+  function resolveStudentNameByAttendeeId(attendeeId) {
     if (!attendeeId) return '';
     for (const student of Object.values(studentsMap)) {
       if (student?.attendeeId === attendeeId) return extractDisplayName(student.externalUserId);
     }
     return String(attendeeId);
-  };
+  }
 
   const isRecording = recordingState === 'recording' || recordingState === 'uploading';
 
   const filteredChatMessages =
     chatTo === 'all'
       ? chatMessages.filter((m) => m?.type === 'broadcast')
-      : chatMessages.filter(
-          (m) =>
-            m?.type === 'direct' &&
-            ((m.fromRole === 'examinee' && m.fromAttendeeId === chatTo && m.toRole === 'proctor') ||
-              (m.fromRole === 'proctor' && m.toRole === 'examinee' && m.toAttendeeId === chatTo)),
-        );
+      : chatMessages.filter((m) => m?.type === 'direct' && String(m?.convKey || '') === String(chatTo));
 
   const totalUnread = Object.entries(chatUnreadByKey).reduce((sum, [key, count]) => {
     if (key === chatTo) return sum;
@@ -452,7 +480,8 @@ export default function ProctorDashboard({
       const payload = safeJsonParse(rawText);
       if (!payload || typeof payload.text !== 'string') return;
 
-      const senderAttendeeId = dataMessage?.senderAttendeeId || payload.fromAttendeeId || '';
+      const senderAttendeeIdRaw = dataMessage?.senderAttendeeId || payload.fromAttendeeId || '';
+      const senderAttendeeId = String(senderAttendeeIdRaw || '').split('#')[0];
       const id = String(payload.id || '');
       if (!id) return;
 
@@ -464,21 +493,36 @@ export default function ProctorDashboard({
         (payload.fromRole === 'proctor' && (payload.type === 'broadcast' || payload.type === 'direct'));
       if (!ok) return;
 
-      // If it claims to be from examinee, ensure the sender is a known student (best-effort).
-      if (payload.fromRole === 'examinee' && senderAttendeeId) {
-        const known = Object.values(studentsMap).some((s) => s?.attendeeId === senderAttendeeId);
-        if (!known) return;
+      // For examinee -> proctor direct messages, we must be able to attribute it to a concrete attendeeId.
+      // (Guests may not appear in studentsMap yet if they joined with camera off.)
+      if (payload.fromRole === 'examinee' && payload.type === 'direct') {
+        if (!senderAttendeeId) return;
       }
+
+      // NOTE: We intentionally do NOT require senderAttendeeId to be in studentsMap.
+      // Otherwise, guests (or camera-off examinees) cannot use direct chat.
 
       if (chatSeenIdsRef.current.has(id)) return;
       chatSeenIdsRef.current.add(id);
 
-      const convKey = payload.type === 'broadcast' ? 'all' : senderAttendeeId;
+      let convKey = 'all';
+      let peerDisplayName = '';
+      if (payload.type === 'broadcast') {
+        convKey = 'all';
+      } else if (payload.fromRole === 'examinee') {
+        convKey = stableKeyFromAttendeeId(senderAttendeeId);
+        peerDisplayName = resolveStudentNameByAttendeeId(senderAttendeeId);
+      } else if (payload.fromRole === 'proctor' && payload.toRole === 'examinee') {
+        const toBase = String(payload.toAttendeeId || '').split('#')[0];
+        convKey = stableKeyFromAttendeeId(toBase);
+        peerDisplayName = resolveStudentNameByAttendeeId(toBase);
+      }
+
       const currentTo = chatToRef.current;
       const isIncomingFromExaminee = payload.fromRole === 'examinee' && payload.toRole === 'proctor' && payload.type === 'direct';
       if (isIncomingFromExaminee && convKey && convKey !== currentTo) {
         bumpUnread(convKey);
-        showChatNotice(`${resolveStudentNameByAttendeeId(convKey)} から新着メッセージ`);
+        showChatNotice(`${resolveStudentNameByStableKey(convKey)} から新着メッセージ`);
       }
 
       setChatMessages((prev) => [
@@ -487,6 +531,8 @@ export default function ProctorDashboard({
           id,
           ts: payload.ts || nowIso(),
           type: payload.type,
+          convKey,
+          peerDisplayName,
           fromRole: payload.fromRole,
           fromAttendeeId: senderAttendeeId,
           toRole: payload.toRole,
@@ -524,6 +570,14 @@ export default function ProctorDashboard({
     const id = makeMessageId();
     const ts = nowIso();
 
+    const target = String(chatTo || '').trim();
+    const targetInfo = target && target !== 'all' ? activeStudentByStableKey.get(target) : null;
+    const targetAttendeeId = String(targetInfo?.attendeeId || '').trim();
+    if (target !== 'all' && !targetAttendeeId) {
+      alert('受験生がまだ会議に参加していません（宛先を確認してください）。');
+      return;
+    }
+
     const payload =
       chatTo === 'all'
         ? {
@@ -542,7 +596,7 @@ export default function ProctorDashboard({
             fromRole: 'proctor',
             fromAttendeeId: myAttendeeId,
             toRole: 'examinee',
-            toAttendeeId: chatTo,
+            toAttendeeId: targetAttendeeId,
             text,
           };
 
@@ -553,6 +607,8 @@ export default function ProctorDashboard({
         id,
         ts,
         type: payload.type,
+        convKey: payload.type === 'broadcast' ? 'all' : String(chatTo || ''),
+        peerDisplayName: payload.type === 'broadcast' ? '' : (targetInfo?.displayName || ''),
         fromRole: payload.fromRole,
         fromAttendeeId: payload.fromAttendeeId,
         toRole: payload.toRole,
@@ -1487,21 +1543,21 @@ export default function ProctorDashboard({
               </button>
               {chatStudentTabs.map((s) => (
                 <button
-                  key={s.attendeeId}
+                  key={s.stableKey}
                   type="button"
-                  onClick={() => setChatTo(s.attendeeId)}
+                  onClick={() => setChatTo(s.stableKey)}
                   disabled={!meetingSession}
                   className={
                     'relative rounded-md border px-3 py-1 text-xs font-semibold disabled:opacity-50 ' +
-                    (chatTo === s.attendeeId
+                    (chatTo === s.stableKey
                       ? 'border-indigo-600 bg-indigo-600 text-white'
                       : 'border-slate-300 bg-white text-slate-900 hover:bg-slate-100')
                   }
                 >
                   {s.displayName}
-                  {Number(chatUnreadByKey?.[s.attendeeId]) > 0 ? (
+                  {Number(chatUnreadByKey?.[s.stableKey]) > 0 ? (
                     <span className="ml-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {chatUnreadByKey[s.attendeeId]}
+                      {chatUnreadByKey[s.stableKey]}
                     </span>
                   ) : null}
                 </button>
@@ -1511,7 +1567,7 @@ export default function ProctorDashboard({
         }
         subHeader={
           <>
-            宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByAttendeeId(chatTo)}`}
+            宛先: {chatTo === 'all' ? '全員（一斉送信）' : `受験生: ${resolveStudentNameByStableKey(chatTo)}`}
           </>
         }
         notice={chatNotice}
