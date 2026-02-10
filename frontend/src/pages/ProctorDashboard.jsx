@@ -48,6 +48,9 @@ export default function ProctorDashboard({
   autoJoin,
   initialJoinWithCamera,
   initialJoinWithMic,
+  initialVideoInputDeviceId,
+  initialAudioInputDeviceId,
+  initialAudioOutputDeviceId,
   initialPrejoinStream,
   onAutoJoinConsumed,
   makeExternalUserIdWithFallback,
@@ -63,6 +66,12 @@ export default function ProctorDashboard({
   const [recordingLastKey, setRecordingLastKey] = useState('');
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [selectedVideoInputDeviceId, setSelectedVideoInputDeviceId] = useState('');
+  const [selectedAudioInputDeviceId, setSelectedAudioInputDeviceId] = useState('');
+  const [selectedAudioOutputDeviceId, setSelectedAudioOutputDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [meetingIdCopied, setMeetingIdCopied] = useState(false);
@@ -96,6 +105,80 @@ export default function ProctorDashboard({
   const presenceCallbackRef = useRef(null);
   const volumeIndicatorCallbacksRef = useRef(new Map()); // attendeeId -> callback
 
+  useEffect(() => {
+    // Pre-join device list for selectors (before meetingSession exists).
+    if (meetingSession) return;
+    if (!navigator?.mediaDevices?.enumerateDevices) return;
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const videos = devices.filter((d) => d.kind === 'videoinput');
+        const audios = devices.filter((d) => d.kind === 'audioinput');
+        const audioOuts = devices.filter((d) => d.kind === 'audiooutput');
+        setVideoDevices(videos);
+        setAudioDevices(audios);
+        setAudioOutputDevices(audioOuts);
+        if (!selectedVideoInputDeviceId && videos.length > 0) setSelectedVideoInputDeviceId(videos[0].deviceId);
+        if (!selectedAudioInputDeviceId && audios.length > 0) setSelectedAudioInputDeviceId(audios[0].deviceId);
+        if (!selectedAudioOutputDeviceId && audioOuts.length > 0) setSelectedAudioOutputDeviceId(audioOuts[0].deviceId);
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    refresh();
+    try {
+      navigator.mediaDevices.addEventListener?.('devicechange', refresh);
+    } catch (_) {
+      // ignore
+    }
+
+    return () => {
+      cancelled = true;
+      try {
+        navigator.mediaDevices.removeEventListener?.('devicechange', refresh);
+      } catch (_) {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingSession]);
+
+  const chooseAudioOutput = async (session, deviceId) => {
+    const outId = String(deviceId || '').trim();
+    if (!session?.audioVideo || !outId) return;
+    try {
+      if (typeof session.audioVideo.chooseAudioOutputDevice === 'function') {
+        await session.audioVideo.chooseAudioOutputDevice(outId);
+      } else if (typeof session.audioVideo.chooseAudioOutput === 'function') {
+        await session.audioVideo.chooseAudioOutput(outId);
+      }
+    } catch (err) {
+      console.warn('[ProctorDashboard] Failed to choose audio output device via Chime', err);
+    }
+
+    // Best-effort: set sink on the bound audio element if supported.
+    try {
+      const el = audioRef.current;
+      if (el && typeof el.setSinkId === 'function') {
+        await el.setSinkId(outId);
+      }
+    } catch (err) {
+      console.warn('[ProctorDashboard] Failed to set audio sinkId', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!meetingSession) return;
+    const outId = String(selectedAudioOutputDeviceId || '').trim();
+    if (!outId) return;
+    chooseAudioOutput(meetingSession, outId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingSession, selectedAudioOutputDeviceId]);
+
   const stableStudentKeyFromExternalUserId = (externalUserId) => {
     const base = String(externalUserId || '').split('#')[0];
     const parts = base.split(':');
@@ -105,6 +188,12 @@ export default function ProctorDashboard({
     }
     // Backward compatibility (older ids like student-123)
     return base;
+  };
+
+  const normalizeAttendeeId = (attendeeId) => {
+    const id = String(attendeeId || '').trim();
+    if (!id) return '';
+    return id.split('#')[0].trim();
   };
 
   const studentsList = Object.values(studentsMap)
@@ -131,10 +220,11 @@ export default function ProctorDashboard({
   })();
 
   const stableKeyFromAttendeeId = (attendeeId) => {
-    const id = String(attendeeId || '').trim();
+    const id = normalizeAttendeeId(attendeeId);
     if (!id) return '';
     for (const student of Object.values(studentsMap)) {
-      if (student?.attendeeId === id && student?.externalUserId) {
+      const studentAttendeeId = normalizeAttendeeId(student?.attendeeId);
+      if (studentAttendeeId && studentAttendeeId === id && student?.externalUserId) {
         return stableStudentKeyFromExternalUserId(student.externalUserId);
       }
     }
@@ -185,11 +275,13 @@ export default function ProctorDashboard({
     .sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), 'ja'));
 
   function resolveStudentNameByAttendeeId(attendeeId) {
-    if (!attendeeId) return '';
+    const id = normalizeAttendeeId(attendeeId);
+    if (!id) return '';
     for (const student of Object.values(studentsMap)) {
-      if (student?.attendeeId === attendeeId) return extractDisplayName(student.externalUserId);
+      const studentAttendeeId = normalizeAttendeeId(student?.attendeeId);
+      if (studentAttendeeId && studentAttendeeId === id) return extractDisplayName(student.externalUserId);
     }
-    return String(attendeeId);
+    return String(id);
   }
 
   const isRecording = recordingState === 'recording' || recordingState === 'uploading';
@@ -572,7 +664,7 @@ export default function ProctorDashboard({
 
     const target = String(chatTo || '').trim();
     const targetInfo = target && target !== 'all' ? activeStudentByStableKey.get(target) : null;
-    const targetAttendeeId = String(targetInfo?.attendeeId || '').trim();
+    const targetAttendeeId = normalizeAttendeeId(targetInfo?.attendeeId);
     if (target !== 'all' && !targetAttendeeId) {
       alert('受験生がまだ会議に参加していません（宛先を確認してください）。');
       return;
@@ -673,10 +765,10 @@ export default function ProctorDashboard({
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false,
-      });
+      const videoConstraint = String(selectedVideoInputDeviceId || '').trim()
+        ? { deviceId: { exact: String(selectedVideoInputDeviceId || '').trim() } }
+        : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
       prejoinStreamRef.current = stream;
 
       if (videoRef.current) {
@@ -693,6 +785,15 @@ export default function ProctorDashboard({
       // If permissions are denied, keep UI as Camera Off overlay.
     }
   };
+
+  useEffect(() => {
+    if (meetingSession) return;
+    if (!joinWithCamera) return;
+    if (!selectedVideoInputDeviceId) return;
+    stopPrejoinPreview();
+    startPrejoinPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideoInputDeviceId]);
 
   const endExam = async () => {
     const session = meetingSession;
@@ -766,7 +867,11 @@ export default function ProctorDashboard({
               alert('利用可能なマイクが見つかりませんでした。');
               return;
             }
-            await meetingSession.audioVideo.startAudioInput(audioInputDevices[0].deviceId);
+            const preferredAudio = String(selectedAudioInputDeviceId || '').trim();
+            const audioDeviceId =
+              (preferredAudio && audioInputDevices.find((d) => d.deviceId === preferredAudio)?.deviceId) ||
+              audioInputDevices[0].deviceId;
+            await meetingSession.audioVideo.startAudioInput(audioDeviceId);
             setIsMicReady(true);
           }
           meetingSession.audioVideo.realtimeUnmuteLocalAudio();
@@ -813,7 +918,11 @@ export default function ProctorDashboard({
         alert('利用可能なカメラが見つかりませんでした。');
         return;
       }
-      await session.audioVideo.startVideoInput(videoInputDevices[0].deviceId);
+      const preferredVideo = String(selectedVideoInputDeviceId || '').trim();
+      const videoDeviceId =
+        (preferredVideo && videoInputDevices.find((d) => d.deviceId === preferredVideo)?.deviceId) ||
+        videoInputDevices[0].deviceId;
+      await session.audioVideo.startVideoInput(videoDeviceId);
       session.audioVideo.startLocalVideoTile();
       setIsCameraOn(true);
     } catch (err) {
@@ -821,6 +930,40 @@ export default function ProctorDashboard({
       alert('カメラの開始に失敗しました。ブラウザ権限をご確認ください。');
     }
   };
+
+  useEffect(() => {
+    const session = meetingSession;
+    if (!session?.audioVideo) return;
+    const deviceId = String(selectedAudioInputDeviceId || '').trim();
+    if (!deviceId) return;
+    if (isMuted) return;
+
+    (async () => {
+      try {
+        await session.audioVideo.startAudioInput(deviceId);
+        setIsMicReady(true);
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [meetingSession, selectedAudioInputDeviceId, isMuted]);
+
+  useEffect(() => {
+    const session = meetingSession;
+    if (!session?.audioVideo) return;
+    const deviceId = String(selectedVideoInputDeviceId || '').trim();
+    if (!deviceId) return;
+    if (!isCameraOn) return;
+
+    (async () => {
+      try {
+        await session.audioVideo.startVideoInput(deviceId);
+        session.audioVideo.startLocalVideoTile();
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [meetingSession, selectedVideoInputDeviceId, isCameraOn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -860,12 +1003,22 @@ export default function ProctorDashboard({
     const hasAny =
       typeof initialJoinWithCamera === 'boolean' ||
       typeof initialJoinWithMic === 'boolean' ||
+      Boolean(String(initialVideoInputDeviceId || '').trim()) ||
+      Boolean(String(initialAudioInputDeviceId || '').trim()) ||
+      Boolean(String(initialAudioOutputDeviceId || '').trim()) ||
       Boolean(initialPrejoinStream);
     if (!hasAny) return;
 
     initialConfigAppliedRef.current = true;
     if (typeof initialJoinWithCamera === 'boolean') setJoinWithCamera(Boolean(initialJoinWithCamera));
     if (typeof initialJoinWithMic === 'boolean') setJoinWithMic(Boolean(initialJoinWithMic));
+
+    const initialVideo = String(initialVideoInputDeviceId || '').trim();
+    const initialAudio = String(initialAudioInputDeviceId || '').trim();
+    const initialAudioOut = String(initialAudioOutputDeviceId || '').trim();
+    if (initialVideo) setSelectedVideoInputDeviceId(initialVideo);
+    if (initialAudio) setSelectedAudioInputDeviceId(initialAudio);
+    if (initialAudioOut) setSelectedAudioOutputDeviceId(initialAudioOut);
 
     if (initialPrejoinStream && !meetingSession) {
       // Use the stream obtained in the modal to avoid re-requesting permissions.
@@ -879,7 +1032,15 @@ export default function ProctorDashboard({
         // ignore
       }
     }
-  }, [initialJoinWithCamera, initialJoinWithMic, initialPrejoinStream, meetingSession]);
+  }, [
+    initialJoinWithCamera,
+    initialJoinWithMic,
+    initialVideoInputDeviceId,
+    initialAudioInputDeviceId,
+    initialAudioOutputDeviceId,
+    initialPrejoinStream,
+    meetingSession,
+  ]);
 
   const joinSession = async (meetingIdOverride) => {
     try {
@@ -905,11 +1066,23 @@ export default function ProctorDashboard({
       const videoInputDevices = await session.audioVideo.listVideoInputDevices();
       const audioOutputDevices = await session.audioVideo.listAudioOutputDevices();
 
+      setAudioOutputDevices(Array.isArray(audioOutputDevices) ? audioOutputDevices : []);
+
+      const preferredAudioOut = String(selectedAudioOutputDeviceId || '').trim();
+      const outputDeviceId =
+        (preferredAudioOut && audioOutputDevices.find((d) => d.deviceId === preferredAudioOut)?.deviceId) ||
+        (audioOutputDevices[0]?.deviceId || '');
+      if (!selectedAudioOutputDeviceId && outputDeviceId) setSelectedAudioOutputDeviceId(outputDeviceId);
+
       let videoInputStarted = false;
       let audioInputStarted = false;
       try {
         if (joinWithMic && audioInputDevices.length > 0) {
-          await session.audioVideo.startAudioInput(audioInputDevices[0].deviceId);
+          const preferredAudio = String(selectedAudioInputDeviceId || '').trim();
+          const audioDeviceId =
+            (preferredAudio && audioInputDevices.find((d) => d.deviceId === preferredAudio)?.deviceId) ||
+            audioInputDevices[0].deviceId;
+          await session.audioVideo.startAudioInput(audioDeviceId);
           audioInputStarted = true;
         }
       } catch (err) {
@@ -933,7 +1106,11 @@ export default function ProctorDashboard({
               // ignore
             }
           } else if (videoInputDevices.length > 0) {
-            await session.audioVideo.startVideoInput(videoInputDevices[0].deviceId);
+            const preferredVideo = String(selectedVideoInputDeviceId || '').trim();
+            const videoDeviceId =
+              (preferredVideo && videoInputDevices.find((d) => d.deviceId === preferredVideo)?.deviceId) ||
+              videoInputDevices[0].deviceId;
+            await session.audioVideo.startVideoInput(videoDeviceId);
             videoInputStarted = true;
           }
         }
@@ -941,8 +1118,7 @@ export default function ProctorDashboard({
         console.warn('Proctor camera unavailable', err);
       }
       if (audioOutputDevices.length > 0) {
-        // Typically binding to an audio element is handled below, but if specific device selection is needed:
-        // await session.audioVideo.chooseAudioOutput(audioOutputDevices[0].deviceId);
+        // Output device selection is applied after bindAudioElement (see audioVideoDidStart).
       }
 
       // Track remote video tiles
@@ -951,6 +1127,10 @@ export default function ProctorDashboard({
           // Bind audio output to hear students
           if (audioRef.current) {
             session.audioVideo.bindAudioElement(audioRef.current);
+          }
+
+          if (outputDeviceId) {
+            chooseAudioOutput(session, outputDeviceId);
           }
 
           // Hide panels for attendees that have left.
@@ -1024,7 +1204,7 @@ export default function ProctorDashboard({
                     [stableKey]: {
                       ...prev[stableKey],
                       externalUserId: baseExternalId,
-                      attendeeId,
+                      attendeeId: normalizeAttendeeId(attendeeId),
                     },
                   };
                 }
@@ -1032,7 +1212,7 @@ export default function ProctorDashboard({
                   ...prev,
                   [stableKey]: {
                     externalUserId: baseExternalId,
-                    attendeeId,
+                    attendeeId: normalizeAttendeeId(attendeeId),
                     cameraTileId: null,
                     screenTileId: null,
                     isMuted: false,
@@ -1123,12 +1303,13 @@ export default function ProctorDashboard({
                 setStudentsMap((prev) => {
                   const curr = prev[stableKey];
                   if (!curr) return prev;
-                  if (curr.isMuted === muted && curr.attendeeId === attendeeId) return prev;
+                  const baseAttendeeId = normalizeAttendeeId(attendeeId);
+                  if (curr.isMuted === muted && normalizeAttendeeId(curr.attendeeId) === baseAttendeeId) return prev;
                   return {
                     ...prev,
                     [stableKey]: {
                       ...curr,
-                      attendeeId,
+                      attendeeId: baseAttendeeId,
                       isMuted: Boolean(muted),
                     },
                   };
@@ -1143,12 +1324,13 @@ export default function ProctorDashboard({
 
           setStudentsMap((prev) => {
             const student = prev[stableKey] || { externalUserId: baseExternalId };
+            const baseAttendeeId = normalizeAttendeeId(tileState.boundAttendeeId || student.attendeeId || null);
             return {
               ...prev,
               [stableKey]: {
                 ...student,
                 externalUserId: baseExternalId,
-                attendeeId: tileState.boundAttendeeId || student.attendeeId || null,
+                attendeeId: baseAttendeeId,
                 cameraTileId: isContent ? student.cameraTileId : tileState.tileId,
                 screenTileId: isContent ? tileState.tileId : student.screenTileId,
               },
@@ -1326,12 +1508,69 @@ export default function ProctorDashboard({
               >
                 {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
               </button>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                <select
+                  value={selectedVideoInputDeviceId}
+                  onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                  disabled={!joinWithCamera || videoDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {videoDevices.length === 0 ? (
+                    <option value="">利用可能なカメラがありません</option>
+                  ) : (
+                    videoDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `カメラ ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
               <button
                 onClick={() => setJoinWithMic((v) => !v)}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
               >
                 {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
               </button>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                <select
+                  value={selectedAudioInputDeviceId}
+                  onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                  disabled={!joinWithMic || audioDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioDevices.length === 0 ? (
+                    <option value="">利用可能なマイクがありません</option>
+                  ) : (
+                    audioDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `マイク ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                <select
+                  value={selectedAudioOutputDeviceId}
+                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                  disabled={audioOutputDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioOutputDevices.length === 0 ? (
+                    <option value="">利用可能なスピーカーがありません</option>
+                  ) : (
+                    audioOutputDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `スピーカー ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
               <button
                 onClick={() => joinSession()}
                 className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
@@ -1342,7 +1581,64 @@ export default function ProctorDashboard({
           )}
 
           {meetingSession && (
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                <select
+                  value={selectedVideoInputDeviceId}
+                  onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                  disabled={videoDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {videoDevices.length === 0 ? (
+                    <option value="">利用可能なカメラがありません</option>
+                  ) : (
+                    videoDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `カメラ ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                <select
+                  value={selectedAudioInputDeviceId}
+                  onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                  disabled={audioDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioDevices.length === 0 ? (
+                    <option value="">利用可能なマイクがありません</option>
+                  ) : (
+                    audioDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `マイク ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                <select
+                  value={selectedAudioOutputDeviceId}
+                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                  disabled={audioOutputDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioOutputDevices.length === 0 ? (
+                    <option value="">利用可能なスピーカーがありません</option>
+                  ) : (
+                    audioOutputDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `スピーカー ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
               <span className="rounded-md bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-300">Live</span>
               {recordingState === 'recording' && (
                 <span className="rounded-md bg-rose-600/20 px-3 py-2 text-sm font-semibold text-rose-300">録画中</span>

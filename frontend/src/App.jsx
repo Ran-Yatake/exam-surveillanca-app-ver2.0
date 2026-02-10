@@ -131,6 +131,9 @@ function App() {
     enabled: false,
     joinWithCamera: true,
     joinWithMic: true,
+    videoInputDeviceId: '',
+    audioInputDeviceId: '',
+    audioOutputDeviceId: '',
     prejoinStream: null,
   });
 
@@ -139,6 +142,9 @@ function App() {
     meetingJoinId: '',
     joinWithCamera: true,
     joinWithMic: true,
+    videoInputDeviceId: '',
+    audioInputDeviceId: '',
+    audioOutputDeviceId: '',
     prejoinStream: null,
   });
 
@@ -498,10 +504,21 @@ function App() {
                 enabled: true,
                 joinWithCamera: Boolean(opts?.joinWithCamera),
                 joinWithMic: Boolean(opts?.joinWithMic),
+                videoInputDeviceId: String(opts?.videoInputDeviceId || ''),
+                audioInputDeviceId: String(opts?.audioInputDeviceId || ''),
+                audioOutputDeviceId: String(opts?.audioOutputDeviceId || ''),
                 prejoinStream: opts?.prejoinStream || null,
               });
             } else {
-              setProctorAutoJoin({ enabled: false, joinWithCamera: true, joinWithMic: true, prejoinStream: null });
+              setProctorAutoJoin({
+                enabled: false,
+                joinWithCamera: true,
+                joinWithMic: true,
+                videoInputDeviceId: '',
+                audioInputDeviceId: '',
+                audioOutputDeviceId: '',
+                prejoinStream: null,
+              });
             }
 
             setPage('meeting');
@@ -530,6 +547,9 @@ function App() {
                 meetingJoinId: joinCode,
                 joinWithCamera: Boolean(opts?.joinWithCamera),
                 joinWithMic: Boolean(opts?.joinWithMic),
+                videoInputDeviceId: String(opts?.videoInputDeviceId || ''),
+                audioInputDeviceId: String(opts?.audioInputDeviceId || ''),
+                audioOutputDeviceId: String(opts?.audioOutputDeviceId || ''),
                 prejoinStream: opts?.prejoinStream || null,
               });
             } else {
@@ -538,6 +558,9 @@ function App() {
                 meetingJoinId: '',
                 joinWithCamera: true,
                 joinWithMic: true,
+                videoInputDeviceId: '',
+                audioInputDeviceId: '',
+                audioOutputDeviceId: '',
                 prejoinStream: null,
               });
             }
@@ -577,12 +600,23 @@ function App() {
           meetingId={proctorJoinCode}
           onSetMeetingId={(code) => setProctorJoinCode(code)}
           onBack={() => {
-            setProctorAutoJoin({ enabled: false, joinWithCamera: true, joinWithMic: true, prejoinStream: null });
+            setProctorAutoJoin({
+              enabled: false,
+              joinWithCamera: true,
+              joinWithMic: true,
+              videoInputDeviceId: '',
+              audioInputDeviceId: '',
+              audioOutputDeviceId: '',
+              prejoinStream: null,
+            });
             setPage('dashboard');
           }}
           autoJoin={Boolean(proctorAutoJoin?.enabled)}
           initialJoinWithCamera={Boolean(proctorAutoJoin?.joinWithCamera)}
           initialJoinWithMic={Boolean(proctorAutoJoin?.joinWithMic)}
+          initialVideoInputDeviceId={String(proctorAutoJoin?.videoInputDeviceId || '')}
+          initialAudioInputDeviceId={String(proctorAutoJoin?.audioInputDeviceId || '')}
+          initialAudioOutputDeviceId={String(proctorAutoJoin?.audioOutputDeviceId || '')}
           initialPrejoinStream={proctorAutoJoin?.prejoinStream || null}
           onAutoJoinConsumed={() =>
             setProctorAutoJoin((prev) => ({ ...(prev || {}), enabled: false, prejoinStream: null }))
@@ -603,6 +637,9 @@ function App() {
               meetingJoinId: '',
               joinWithCamera: true,
               joinWithMic: true,
+              videoInputDeviceId: '',
+              audioInputDeviceId: '',
+              audioOutputDeviceId: '',
               prejoinStream: null,
             });
             setGuestExamineeDisplayName('');
@@ -612,6 +649,9 @@ function App() {
           initialMeetingJoinId={String(examineeAutoJoin?.meetingJoinId || '')}
           initialJoinWithCamera={Boolean(examineeAutoJoin?.joinWithCamera)}
           initialJoinWithMic={Boolean(examineeAutoJoin?.joinWithMic)}
+          initialVideoInputDeviceId={String(examineeAutoJoin?.videoInputDeviceId || '')}
+          initialAudioInputDeviceId={String(examineeAutoJoin?.audioInputDeviceId || '')}
+          initialAudioOutputDeviceId={String(examineeAutoJoin?.audioOutputDeviceId || '')}
           initialPrejoinStream={examineeAutoJoin?.prejoinStream || null}
           onAutoJoinConsumed={() =>
             setExamineeAutoJoin((prev) => ({ ...(prev || {}), enabled: false, prejoinStream: null }))

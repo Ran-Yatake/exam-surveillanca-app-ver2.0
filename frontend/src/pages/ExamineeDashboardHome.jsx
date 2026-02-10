@@ -64,7 +64,16 @@ export default function ExamineeDashboardHome({
           if (prejoinBusy) return;
           setPrejoinOpen(false);
         }}
-        onStart={async ({ meetingId, displayName, joinWithCamera, joinWithMic, prejoinStream }) => {
+        onStart={async ({
+          meetingId,
+          displayName,
+          joinWithCamera,
+          joinWithMic,
+          videoInputDeviceId,
+          audioInputDeviceId,
+          audioOutputDeviceId,
+          prejoinStream,
+        }) => {
           const id = String(meetingId || '').trim();
           if (!id) {
             setPrejoinError('ミーティングIDを入力してください');
@@ -86,6 +95,9 @@ export default function ExamineeDashboardHome({
               displayName: dn,
               joinWithCamera: Boolean(joinWithCamera),
               joinWithMic: Boolean(joinWithMic),
+              videoInputDeviceId: String(videoInputDeviceId || ''),
+              audioInputDeviceId: String(audioInputDeviceId || ''),
+              audioOutputDeviceId: String(audioOutputDeviceId || ''),
               prejoinStream: prejoinStream || null,
               autoJoin: true,
             });

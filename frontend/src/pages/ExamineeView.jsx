@@ -51,6 +51,9 @@ export default function ExamineeView({
   initialMeetingJoinId,
   initialJoinWithCamera,
   initialJoinWithMic,
+  initialVideoInputDeviceId,
+  initialAudioInputDeviceId,
+  initialAudioOutputDeviceId,
   initialPrejoinStream,
   onAutoJoinConsumed,
   makeExternalUserIdWithFallback,
@@ -64,6 +67,12 @@ export default function ExamineeView({
   const [isMicReady, setIsMicReady] = useState(false);
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [selectedVideoInputDeviceId, setSelectedVideoInputDeviceId] = useState('');
+  const [selectedAudioInputDeviceId, setSelectedAudioInputDeviceId] = useState('');
+  const [selectedAudioOutputDeviceId, setSelectedAudioOutputDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [proctorExternalUserId, setProctorExternalUserId] = useState('');
@@ -91,6 +100,78 @@ export default function ExamineeView({
   const attendanceJoinCodeRef = useRef('');
   const attendanceAttendeeIdRef = useRef('');
   const attendanceLeaveSentRef = useRef(false);
+
+  useEffect(() => {
+    // Pre-join device list for selectors (before meetingSession exists).
+    if (meetingSession) return;
+    if (!navigator?.mediaDevices?.enumerateDevices) return;
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const videos = devices.filter((d) => d.kind === 'videoinput');
+        const audios = devices.filter((d) => d.kind === 'audioinput');
+        const audioOuts = devices.filter((d) => d.kind === 'audiooutput');
+        setVideoDevices(videos);
+        setAudioDevices(audios);
+        setAudioOutputDevices(audioOuts);
+        if (!selectedVideoInputDeviceId && videos.length > 0) setSelectedVideoInputDeviceId(videos[0].deviceId);
+        if (!selectedAudioInputDeviceId && audios.length > 0) setSelectedAudioInputDeviceId(audios[0].deviceId);
+        if (!selectedAudioOutputDeviceId && audioOuts.length > 0) setSelectedAudioOutputDeviceId(audioOuts[0].deviceId);
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    refresh();
+    try {
+      navigator.mediaDevices.addEventListener?.('devicechange', refresh);
+    } catch (_) {
+      // ignore
+    }
+
+    return () => {
+      cancelled = true;
+      try {
+        navigator.mediaDevices.removeEventListener?.('devicechange', refresh);
+      } catch (_) {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingSession]);
+
+  const chooseAudioOutput = async (session, deviceId) => {
+    const outId = String(deviceId || '').trim();
+    if (!session?.audioVideo || !outId) return;
+    try {
+      if (typeof session.audioVideo.chooseAudioOutputDevice === 'function') {
+        await session.audioVideo.chooseAudioOutputDevice(outId);
+      } else if (typeof session.audioVideo.chooseAudioOutput === 'function') {
+        await session.audioVideo.chooseAudioOutput(outId);
+      }
+    } catch (err) {
+      console.warn('[ExamineeView] Failed to choose audio output device via Chime', err);
+    }
+    try {
+      const el = audioRef.current;
+      if (el && typeof el.setSinkId === 'function') {
+        await el.setSinkId(outId);
+      }
+    } catch (err) {
+      console.warn('[ExamineeView] Failed to set audio sinkId', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!meetingSession) return;
+    const outId = String(selectedAudioOutputDeviceId || '').trim();
+    if (!outId) return;
+    chooseAudioOutput(meetingSession, outId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingSession, selectedAudioOutputDeviceId]);
 
   const myAttendeeId = meetingSession?.configuration?.credentials?.attendeeId || '';
   const showMicOffBadge = meetingSession ? isMuted : !joinWithMic;
@@ -280,10 +361,10 @@ export default function ExamineeView({
     if (prejoinStreamRef.current) return;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false,
-      });
+      const videoConstraint = String(selectedVideoInputDeviceId || '').trim()
+        ? { deviceId: { exact: String(selectedVideoInputDeviceId || '').trim() } }
+        : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
       prejoinStreamRef.current = stream;
 
       if (videoRef.current) {
@@ -299,6 +380,16 @@ export default function ExamineeView({
       stopPrejoinPreview();
     }
   };
+
+  useEffect(() => {
+    if (meetingSession) return;
+    if (!joinWithCamera) return;
+    if (!selectedVideoInputDeviceId) return;
+    // Restart preview to apply selected camera.
+    stopPrejoinPreview();
+    startPrejoinPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideoInputDeviceId]);
 
   const leaveSession = async () => {
     const session = meetingSession;
@@ -431,7 +522,11 @@ export default function ExamineeView({
               alert('利用可能なマイクが見つかりませんでした。');
               return;
             }
-            await meetingSession.audioVideo.startAudioInput(audioInputDevices[0].deviceId);
+            const preferredAudio = String(selectedAudioInputDeviceId || '').trim();
+            const audioDeviceId =
+              (preferredAudio && audioInputDevices.find((d) => d.deviceId === preferredAudio)?.deviceId) ||
+              audioInputDevices[0].deviceId;
+            await meetingSession.audioVideo.startAudioInput(audioDeviceId);
             setIsMicReady(true);
           }
           meetingSession.audioVideo.realtimeUnmuteLocalAudio();
@@ -478,7 +573,11 @@ export default function ExamineeView({
         alert('利用可能なカメラが見つかりませんでした。');
         return;
       }
-      await session.audioVideo.startVideoInput(videoInputDevices[0].deviceId);
+      const preferredVideo = String(selectedVideoInputDeviceId || '').trim();
+      const videoDeviceId =
+        (preferredVideo && videoInputDevices.find((d) => d.deviceId === preferredVideo)?.deviceId) ||
+        videoInputDevices[0].deviceId;
+      await session.audioVideo.startVideoInput(videoDeviceId);
       session.audioVideo.startLocalVideoTile();
       setIsCameraOn(true);
     } catch (err) {
@@ -486,6 +585,40 @@ export default function ExamineeView({
       alert('カメラの開始に失敗しました。ブラウザ権限をご確認ください。');
     }
   };
+
+  useEffect(() => {
+    const session = meetingSession;
+    if (!session?.audioVideo) return;
+    const deviceId = String(selectedAudioInputDeviceId || '').trim();
+    if (!deviceId) return;
+    if (isMuted) return;
+
+    (async () => {
+      try {
+        await session.audioVideo.startAudioInput(deviceId);
+        setIsMicReady(true);
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [meetingSession, selectedAudioInputDeviceId, isMuted]);
+
+  useEffect(() => {
+    const session = meetingSession;
+    if (!session?.audioVideo) return;
+    const deviceId = String(selectedVideoInputDeviceId || '').trim();
+    if (!deviceId) return;
+    if (!isCameraOn) return;
+
+    (async () => {
+      try {
+        await session.audioVideo.startVideoInput(deviceId);
+        session.audioVideo.startLocalVideoTile();
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [meetingSession, selectedVideoInputDeviceId, isCameraOn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -585,12 +718,25 @@ export default function ExamineeView({
       // 4. Select Audio/Video Devices
       const audioInputDevices = await session.audioVideo.listAudioInputDevices();
       const videoInputDevices = await session.audioVideo.listVideoInputDevices();
+      const audioOutputDevices = await session.audioVideo.listAudioOutputDevices();
+
+      setAudioOutputDevices(Array.isArray(audioOutputDevices) ? audioOutputDevices : []);
+
+      const preferredAudioOut = String(selectedAudioOutputDeviceId || '').trim();
+      const outputDeviceId =
+        (preferredAudioOut && audioOutputDevices.find((d) => d.deviceId === preferredAudioOut)?.deviceId) ||
+        (audioOutputDevices[0]?.deviceId || '');
+      if (!selectedAudioOutputDeviceId && outputDeviceId) setSelectedAudioOutputDeviceId(outputDeviceId);
 
       let audioInputStarted = false;
       let videoInputStarted = false;
 
       if (joinWithMic && audioInputDevices.length > 0) {
-        await session.audioVideo.startAudioInput(audioInputDevices[0].deviceId);
+        const preferredAudio = String(selectedAudioInputDeviceId || '').trim();
+        const audioDeviceId =
+          (preferredAudio && audioInputDevices.find((d) => d.deviceId === preferredAudio)?.deviceId) ||
+          audioInputDevices[0].deviceId;
+        await session.audioVideo.startAudioInput(audioDeviceId);
         audioInputStarted = true;
       }
       if (joinWithCamera && videoInputDevices.length > 0) {
@@ -609,7 +755,11 @@ export default function ExamineeView({
             // ignore
           }
         } else {
-          await session.audioVideo.startVideoInput(videoInputDevices[0].deviceId);
+          const preferredVideo = String(selectedVideoInputDeviceId || '').trim();
+          const videoDeviceId =
+            (preferredVideo && videoInputDevices.find((d) => d.deviceId === preferredVideo)?.deviceId) ||
+            videoInputDevices[0].deviceId;
+          await session.audioVideo.startVideoInput(videoDeviceId);
           videoInputStarted = true;
         }
       }
@@ -619,6 +769,10 @@ export default function ExamineeView({
         audioVideoDidStart: () => {
           if (audioRef.current) {
             session.audioVideo.bindAudioElement(audioRef.current);
+          }
+
+          if (outputDeviceId) {
+            chooseAudioOutput(session, outputDeviceId);
           }
         },
         videoTileDidUpdate: (tileState) => {
@@ -748,6 +902,9 @@ export default function ExamineeView({
       Boolean(String(initialMeetingJoinId || '').trim()) ||
       typeof initialJoinWithCamera === 'boolean' ||
       typeof initialJoinWithMic === 'boolean' ||
+      Boolean(String(initialVideoInputDeviceId || '').trim()) ||
+      Boolean(String(initialAudioInputDeviceId || '').trim()) ||
+      Boolean(String(initialAudioOutputDeviceId || '').trim()) ||
       Boolean(initialPrejoinStream);
     if (!hasAny) return;
 
@@ -757,6 +914,13 @@ export default function ExamineeView({
     if (id) setMeetingJoinId(id);
     if (typeof initialJoinWithCamera === 'boolean') setJoinWithCamera(Boolean(initialJoinWithCamera));
     if (typeof initialJoinWithMic === 'boolean') setJoinWithMic(Boolean(initialJoinWithMic));
+
+    const initialVideo = String(initialVideoInputDeviceId || '').trim();
+    const initialAudio = String(initialAudioInputDeviceId || '').trim();
+    const initialAudioOut = String(initialAudioOutputDeviceId || '').trim();
+    if (initialVideo) setSelectedVideoInputDeviceId(initialVideo);
+    if (initialAudio) setSelectedAudioInputDeviceId(initialAudio);
+    if (initialAudioOut) setSelectedAudioOutputDeviceId(initialAudioOut);
 
     if (initialPrejoinStream && !meetingSession) {
       prejoinStreamRef.current = initialPrejoinStream;
@@ -773,6 +937,9 @@ export default function ExamineeView({
     initialMeetingJoinId,
     initialJoinWithCamera,
     initialJoinWithMic,
+    initialVideoInputDeviceId,
+    initialAudioInputDeviceId,
+    initialAudioOutputDeviceId,
     initialPrejoinStream,
     meetingSession,
   ]);
@@ -967,12 +1134,69 @@ export default function ExamineeView({
                 >
                   {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
                 </button>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                  <select
+                    value={selectedVideoInputDeviceId}
+                    onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithCamera || videoDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {videoDevices.length === 0 ? (
+                      <option value="">利用可能なカメラがありません</option>
+                    ) : (
+                      videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `カメラ ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
                 <button
                   onClick={() => setJoinWithMic((v) => !v)}
                   className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
                   {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
                 </button>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                  <select
+                    value={selectedAudioInputDeviceId}
+                    onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithMic || audioDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioDevices.length === 0 ? (
+                      <option value="">利用可能なマイクがありません</option>
+                    ) : (
+                      audioDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `マイク ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                  <select
+                    value={selectedAudioOutputDeviceId}
+                    onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                    disabled={audioOutputDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="">利用可能なスピーカーがありません</option>
+                    ) : (
+                      audioOutputDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `スピーカー ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
                 <button
                   onClick={startExam}
                   disabled={status === 'Initializing...'}
@@ -999,7 +1223,64 @@ export default function ExamineeView({
             )}
 
             {meetingSession && (
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                  <select
+                    value={selectedVideoInputDeviceId}
+                    onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                    disabled={videoDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {videoDevices.length === 0 ? (
+                      <option value="">利用可能なカメラがありません</option>
+                    ) : (
+                      videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `カメラ ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                  <select
+                    value={selectedAudioInputDeviceId}
+                    onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                    disabled={audioDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioDevices.length === 0 ? (
+                      <option value="">利用可能なマイクがありません</option>
+                    ) : (
+                      audioDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `マイク ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                  <select
+                    value={selectedAudioOutputDeviceId}
+                    onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                    disabled={audioOutputDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="">利用可能なスピーカーがありません</option>
+                    ) : (
+                      audioOutputDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `スピーカー ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
                 <button
                   onClick={toggleCamera}
                   className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"

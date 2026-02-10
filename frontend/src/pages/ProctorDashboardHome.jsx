@@ -229,7 +229,14 @@ export default function ProctorDashboardHome({
         busy={prejoinBusy}
         error={prejoinError}
         onClose={closePrejoin}
-        onStart={async ({ joinWithCamera, joinWithMic, prejoinStream }) => {
+        onStart={async ({
+          joinWithCamera,
+          joinWithMic,
+          videoInputDeviceId,
+          audioInputDeviceId,
+          audioOutputDeviceId,
+          prejoinStream,
+        }) => {
           const joinCode = String(prejoinMeeting?.join_code || '').trim();
           if (!joinCode) {
             setPrejoinError('join_code が見つかりません');
@@ -249,6 +256,9 @@ export default function ProctorDashboardHome({
               joinCode,
               joinWithCamera: Boolean(joinWithCamera),
               joinWithMic: Boolean(joinWithMic),
+              videoInputDeviceId: String(videoInputDeviceId || ''),
+              audioInputDeviceId: String(audioInputDeviceId || ''),
+              audioOutputDeviceId: String(audioOutputDeviceId || ''),
               prejoinStream: prejoinStream || null,
               autoJoin: true,
             });

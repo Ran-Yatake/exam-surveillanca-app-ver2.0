@@ -20,6 +20,13 @@ export default function PreJoinMeetingModal({
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
 
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState('');
+  const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState('');
+  const [selectedAudioOutputDeviceId, setSelectedAudioOutputDeviceId] = useState('');
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [cameraError, setCameraError] = useState('');
@@ -55,7 +62,10 @@ export default function PreJoinMeetingModal({
 
     setCameraError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const videoConstraint = selectedVideoDeviceId
+        ? { deviceId: { exact: selectedVideoDeviceId } }
+        : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -89,6 +99,47 @@ export default function PreJoinMeetingModal({
 
   useEffect(() => {
     if (!open) return () => {};
+    let cancelled = false;
+
+    const refreshDevices = async () => {
+      try {
+        if (!navigator?.mediaDevices?.enumerateDevices) return;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const videos = devices.filter((d) => d.kind === 'videoinput');
+        const audios = devices.filter((d) => d.kind === 'audioinput');
+        const audioOuts = devices.filter((d) => d.kind === 'audiooutput');
+        setVideoDevices(videos);
+        setAudioDevices(audios);
+        setAudioOutputDevices(audioOuts);
+        if (!selectedVideoDeviceId && videos.length > 0) setSelectedVideoDeviceId(videos[0].deviceId);
+        if (!selectedAudioDeviceId && audios.length > 0) setSelectedAudioDeviceId(audios[0].deviceId);
+        if (!selectedAudioOutputDeviceId && audioOuts.length > 0) setSelectedAudioOutputDeviceId(audioOuts[0].deviceId);
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    refreshDevices();
+    try {
+      navigator.mediaDevices?.addEventListener?.('devicechange', refreshDevices);
+    } catch (_) {
+      // ignore
+    }
+
+    return () => {
+      cancelled = true;
+      try {
+        navigator.mediaDevices?.removeEventListener?.('devicechange', refreshDevices);
+      } catch (_) {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return () => {};
     startPreview();
     return () => {
       // stop if modal is closed without starting
@@ -102,6 +153,14 @@ export default function PreJoinMeetingModal({
     startPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinWithCamera, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!joinWithCamera) return;
+    stopPreview();
+    startPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideoDeviceId]);
 
   if (!open) return null;
 
@@ -173,6 +232,25 @@ export default function PreJoinMeetingModal({
               >
                 {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
               </button>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                <select
+                  value={selectedVideoDeviceId}
+                  onChange={(e) => setSelectedVideoDeviceId(String(e.target.value || ''))}
+                  disabled={!joinWithCamera || videoDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {videoDevices.length === 0 ? (
+                    <option value="">利用可能なカメラがありません</option>
+                  ) : (
+                    videoDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `カメラ ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={() => setJoinWithMic((v) => !v)}
@@ -180,6 +258,45 @@ export default function PreJoinMeetingModal({
               >
                 {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
               </button>
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                <select
+                  value={selectedAudioDeviceId}
+                  onChange={(e) => setSelectedAudioDeviceId(String(e.target.value || ''))}
+                  disabled={!joinWithMic || audioDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioDevices.length === 0 ? (
+                    <option value="">利用可能なマイクがありません</option>
+                  ) : (
+                    audioDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `マイク ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div className="min-w-[220px]">
+                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                <select
+                  value={selectedAudioOutputDeviceId}
+                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                  disabled={audioOutputDevices.length === 0}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                >
+                  {audioOutputDevices.length === 0 ? (
+                    <option value="">利用可能なスピーカーがありません</option>
+                  ) : (
+                    audioOutputDevices.map((d, idx) => (
+                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                        {d.label || `スピーカー ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
 
               <button
                 type="button"
@@ -188,7 +305,14 @@ export default function PreJoinMeetingModal({
                   if (!joinCode) return;
                   // NOTE: do NOT stop stream here; hand it off to meeting page.
                   detachVideo();
-                  onStart?.({ joinWithCamera, joinWithMic, prejoinStream: streamRef.current || null });
+                  onStart?.({
+                    joinWithCamera,
+                    joinWithMic,
+                    videoInputDeviceId: String(selectedVideoDeviceId || ''),
+                    audioInputDeviceId: String(selectedAudioDeviceId || ''),
+                    audioOutputDeviceId: String(selectedAudioOutputDeviceId || ''),
+                    prejoinStream: streamRef.current || null,
+                  });
                 }}
                 disabled={busy || !joinCode}
                 className="ml-0 sm:ml-auto w-full sm:w-auto rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
