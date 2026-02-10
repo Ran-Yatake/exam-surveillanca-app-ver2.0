@@ -1501,79 +1501,87 @@ export default function ProctorDashboard({
           )}
 
           {!meetingSession && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setJoinWithCamera((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
-              </button>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
-                <select
-                  value={selectedVideoInputDeviceId}
-                  onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
-                  disabled={!joinWithCamera || videoDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+            <div className="ml-auto w-full max-w-xl">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setJoinWithMic((v) => !v)}
+                  className="flex-1 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {videoDevices.length === 0 ? (
-                    <option value="">利用可能なカメラがありません</option>
-                  ) : (
-                    videoDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `カメラ ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <button
-                onClick={() => setJoinWithMic((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
-              </button>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
-                <select
-                  value={selectedAudioInputDeviceId}
-                  onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
-                  disabled={!joinWithMic || audioDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
+                </button>
+                <button
+                  onClick={() => setJoinWithCamera((v) => !v)}
+                  className="flex-1 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {audioDevices.length === 0 ? (
-                    <option value="">利用可能なマイクがありません</option>
-                  ) : (
-                    audioDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `マイク ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
+                </button>
               </div>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
-                <select
-                  value={selectedAudioOutputDeviceId}
-                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
-                  disabled={audioOutputDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
-                >
-                  {audioOutputDevices.length === 0 ? (
-                    <option value="">利用可能なスピーカーがありません</option>
-                  ) : (
-                    audioOutputDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `スピーカー ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
+
+              <div className="mt-3 space-y-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                  <select
+                    value={selectedVideoInputDeviceId}
+                    onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithCamera || videoDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {videoDevices.length === 0 ? (
+                      <option value="">利用可能なカメラがありません</option>
+                    ) : (
+                      videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `カメラ ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                  <select
+                    value={selectedAudioInputDeviceId}
+                    onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithMic || audioDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioDevices.length === 0 ? (
+                      <option value="">利用可能なマイクがありません</option>
+                    ) : (
+                      audioDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `マイク ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                  <select
+                    value={selectedAudioOutputDeviceId}
+                    onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                    disabled={audioOutputDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="">利用可能なスピーカーがありません</option>
+                    ) : (
+                      audioOutputDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `スピーカー ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
               </div>
+
               <button
                 onClick={() => joinSession()}
-                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                className="mt-3 w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
               >
                 参加して監視開始
               </button>
@@ -1581,92 +1589,98 @@ export default function ProctorDashboard({
           )}
 
           {meetingSession && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
-                <select
-                  value={selectedVideoInputDeviceId}
-                  onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
-                  disabled={videoDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+            <div className="ml-auto flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="rounded-md bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-300">Live</span>
+                {recordingState === 'recording' && (
+                  <span className="rounded-md bg-rose-600/20 px-3 py-2 text-sm font-semibold text-rose-300">録画中</span>
+                )}
+                {recordingState === 'uploading' && (
+                  <span className="rounded-md bg-slate-950/10 px-3 py-2 text-sm font-semibold text-slate-700">
+                    アップロード中…
+                  </span>
+                )}
+
+                <button
+                  onClick={isRecording ? stopCompositeRecording : startCompositeRecording}
+                  disabled={recordingState === 'uploading'}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {videoDevices.length === 0 ? (
-                    <option value="">利用可能なカメラがありません</option>
-                  ) : (
-                    videoDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `カメラ ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
-                <select
-                  value={selectedAudioInputDeviceId}
-                  onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
-                  disabled={audioDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  {isRecording ? '録画停止' : '録画開始'}
+                </button>
+                <button
+                  onClick={toggleCamera}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {audioDevices.length === 0 ? (
-                    <option value="">利用可能なマイクがありません</option>
-                  ) : (
-                    audioDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `マイク ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
-                <select
-                  value={selectedAudioOutputDeviceId}
-                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
-                  disabled={audioOutputDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  {isCameraOn ? 'カメラ:ON' : 'カメラ:OFF'}
+                </button>
+                <button
+                  onClick={toggleMute}
+                  className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {audioOutputDevices.length === 0 ? (
-                    <option value="">利用可能なスピーカーがありません</option>
-                  ) : (
-                    audioOutputDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `スピーカー ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  {isMuted ? 'マイク:OFF' : 'マイク:ON'}
+                </button>
               </div>
-              <span className="rounded-md bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-300">Live</span>
-              {recordingState === 'recording' && (
-                <span className="rounded-md bg-rose-600/20 px-3 py-2 text-sm font-semibold text-rose-300">録画中</span>
-              )}
-              {recordingState === 'uploading' && (
-                <span className="rounded-md bg-slate-950/10 px-3 py-2 text-sm font-semibold text-slate-700">
-                  アップロード中…
-                </span>
-              )}
-              <button
-                onClick={isRecording ? stopCompositeRecording : startCompositeRecording}
-                disabled={recordingState === 'uploading'}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isRecording ? '録画停止' : '録画開始'}
-              </button>
-              <button
-                onClick={toggleCamera}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {isCameraOn ? 'カメラ:ON' : 'カメラ:OFF'}
-              </button>
-              <button
-                onClick={toggleMute}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {isMuted ? 'マイク:OFF' : 'マイク:ON'}
-              </button>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                  <select
+                    value={selectedVideoInputDeviceId}
+                    onChange={(e) => setSelectedVideoInputDeviceId(String(e.target.value || ''))}
+                    disabled={videoDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {videoDevices.length === 0 ? (
+                      <option value="">利用可能なカメラがありません</option>
+                    ) : (
+                      videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `カメラ ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                  <select
+                    value={selectedAudioInputDeviceId}
+                    onChange={(e) => setSelectedAudioInputDeviceId(String(e.target.value || ''))}
+                    disabled={audioDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioDevices.length === 0 ? (
+                      <option value="">利用可能なマイクがありません</option>
+                    ) : (
+                      audioDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `マイク ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                <div className="min-w-[220px]">
+                  <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                  <select
+                    value={selectedAudioOutputDeviceId}
+                    onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                    disabled={audioOutputDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="">利用可能なスピーカーがありません</option>
+                    ) : (
+                      audioOutputDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `スピーカー ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              </div>
             </div>
           )}
         </div>

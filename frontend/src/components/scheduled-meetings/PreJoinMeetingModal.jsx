@@ -224,78 +224,84 @@ export default function PreJoinMeetingModal({
               <div className="text-slate-600">ID: <span className="text-slate-900 font-semibold">{joinCode || '—'}</span></div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setJoinWithCamera((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
-              </button>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
-                <select
-                  value={selectedVideoDeviceId}
-                  onChange={(e) => setSelectedVideoDeviceId(String(e.target.value || ''))}
-                  disabled={!joinWithCamera || videoDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+            <div className="mt-4">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJoinWithMic((v) => !v)}
+                  className="flex-1 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {videoDevices.length === 0 ? (
-                    <option value="">利用可能なカメラがありません</option>
-                  ) : (
-                    videoDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `カメラ ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={() => setJoinWithMic((v) => !v)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
-              </button>
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
-                <select
-                  value={selectedAudioDeviceId}
-                  onChange={(e) => setSelectedAudioDeviceId(String(e.target.value || ''))}
-                  disabled={!joinWithMic || audioDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  {joinWithMic ? 'マイク:ON' : 'マイク:OFF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setJoinWithCamera((v) => !v)}
+                  className="flex-1 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                 >
-                  {audioDevices.length === 0 ? (
-                    <option value="">利用可能なマイクがありません</option>
-                  ) : (
-                    audioDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `マイク ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  {joinWithCamera ? 'カメラ:ON' : 'カメラ:OFF'}
+                </button>
               </div>
 
-              <div className="min-w-[220px]">
-                <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
-                <select
-                  value={selectedAudioOutputDeviceId}
-                  onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
-                  disabled={audioOutputDevices.length === 0}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
-                >
-                  {audioOutputDevices.length === 0 ? (
-                    <option value="">利用可能なスピーカーがありません</option>
-                  ) : (
-                    audioOutputDevices.map((d, idx) => (
-                      <option key={d.deviceId || String(idx)} value={d.deviceId}>
-                        {d.label || `スピーカー ${idx + 1}`}
-                      </option>
-                    ))
-                  )}
-                </select>
+              <div className="mt-3 space-y-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">カメラ</label>
+                  <select
+                    value={selectedVideoDeviceId}
+                    onChange={(e) => setSelectedVideoDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithCamera || videoDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {videoDevices.length === 0 ? (
+                      <option value="">利用可能なカメラがありません</option>
+                    ) : (
+                      videoDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `カメラ ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">マイク</label>
+                  <select
+                    value={selectedAudioDeviceId}
+                    onChange={(e) => setSelectedAudioDeviceId(String(e.target.value || ''))}
+                    disabled={!joinWithMic || audioDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioDevices.length === 0 ? (
+                      <option value="">利用可能なマイクがありません</option>
+                    ) : (
+                      audioDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `マイク ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600">スピーカー</label>
+                  <select
+                    value={selectedAudioOutputDeviceId}
+                    onChange={(e) => setSelectedAudioOutputDeviceId(String(e.target.value || ''))}
+                    disabled={audioOutputDevices.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-50"
+                  >
+                    {audioOutputDevices.length === 0 ? (
+                      <option value="">利用可能なスピーカーがありません</option>
+                    ) : (
+                      audioOutputDevices.map((d, idx) => (
+                        <option key={d.deviceId || String(idx)} value={d.deviceId}>
+                          {d.label || `スピーカー ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
               </div>
 
               <button
@@ -315,7 +321,7 @@ export default function PreJoinMeetingModal({
                   });
                 }}
                 disabled={busy || !joinCode}
-                className="ml-0 sm:ml-auto w-full sm:w-auto rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="mt-3 w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy ? '開始中...' : '開始'}
               </button>
