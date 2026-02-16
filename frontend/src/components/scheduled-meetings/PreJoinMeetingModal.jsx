@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 function stopStream(stream) {
   if (!stream) return;
@@ -23,17 +23,6 @@ export default function PreJoinMeetingModal({
   const [notificationPermission, setNotificationPermission] = useState('');
   const [notificationHint, setNotificationHint] = useState('');
 
-  const getBrowserForNotificationHelp = () => {
-    try {
-      const ua = String(navigator?.userAgent || '');
-      if (/Edg\//.test(ua)) return 'edge';
-      if ((/Chrome\//.test(ua) || /CriOS\//.test(ua)) && !/Edg\//.test(ua)) return 'chrome';
-      return 'other';
-    } catch (_) {
-      return 'other';
-    }
-  };
-
   const [videoDevices, setVideoDevices] = useState([]);
   const [audioDevices, setAudioDevices] = useState([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState([]);
@@ -43,6 +32,7 @@ export default function PreJoinMeetingModal({
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const autoNotificationRequestedRef = useRef(false);
   const [cameraError, setCameraError] = useState('');
 
   const title = meeting?.title || '（無題）';
@@ -65,7 +55,7 @@ export default function PreJoinMeetingModal({
 
   const startPreview = async () => {
     if (!open) return;
-    if (!joinWithCamera) {
+    if (!joinWithCamera && !joinWithMic) {
       stopPreview();
       return;
     }
@@ -76,10 +66,18 @@ export default function PreJoinMeetingModal({
 
     setCameraError('');
     try {
-      const videoConstraint = selectedVideoDeviceId
-        ? { deviceId: { exact: selectedVideoDeviceId } }
-        : true;
-      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+      const videoConstraint = joinWithCamera
+        ? selectedVideoDeviceId
+          ? { deviceId: { exact: selectedVideoDeviceId } }
+          : true
+        : false;
+      const audioConstraint = joinWithMic
+        ? selectedAudioDeviceId
+          ? { deviceId: { exact: selectedAudioDeviceId } }
+          : true
+        : false;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: audioConstraint });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -89,9 +87,27 @@ export default function PreJoinMeetingModal({
           // ignore
         }
       }
+
+      // Refresh device list AFTER permission is granted so labels appear.
+      try {
+        if (navigator?.mediaDevices?.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videos = devices.filter((d) => d.kind === 'videoinput');
+          const audios = devices.filter((d) => d.kind === 'audioinput');
+          const audioOuts = devices.filter((d) => d.kind === 'audiooutput');
+          setVideoDevices(videos);
+          setAudioDevices(audios);
+          setAudioOutputDevices(audioOuts);
+          if (!selectedVideoDeviceId && videos.length > 0) setSelectedVideoDeviceId(videos[0].deviceId);
+          if (!selectedAudioDeviceId && audios.length > 0) setSelectedAudioDeviceId(audios[0].deviceId);
+          if (!selectedAudioOutputDeviceId && audioOuts.length > 0) setSelectedAudioOutputDeviceId(audioOuts[0].deviceId);
+        }
+      } catch (_) {
+        // ignore
+      }
     } catch (err) {
-      console.warn('[PreJoinMeetingModal] Failed to start camera preview', err);
-      setCameraError('カメラの開始に失敗しました。ブラウザの権限をご確認ください。');
+      console.warn('[PreJoinMeetingModal] Failed to start media preview', err);
+      setCameraError('カメラ/マイクの開始に失敗しました。ブラウザの権限をご確認ください。');
       stopPreview();
     }
   };
@@ -158,11 +174,12 @@ export default function PreJoinMeetingModal({
     };
   }, [open]);
 
-  const requestNotificationPermission = async () => {
+  const requestNotificationPermission = async (opts) => {
     try {
+      const silent = Boolean(opts?.silent);
       // eslint-disable-next-line no-undef
       if (typeof Notification === 'undefined') {
-        alert('このブラウザは通知に対応していません。');
+        if (!silent) alert('このブラウザは通知に対応していません。');
         setNotificationPermission('unsupported');
         return;
       }
@@ -176,14 +193,9 @@ export default function PreJoinMeetingModal({
 
       if (current === 'denied') {
         setNotificationPermission('denied');
-        const b = getBrowserForNotificationHelp();
-        const help =
-          b === 'edge'
-            ? '通知がブロックされています。Edge のアドレスバー左の鍵アイコン →「このサイトのアクセス許可」→「通知」を「許可」に変更してください。'
-            : b === 'chrome'
-              ? '通知がブロックされています。Chrome のアドレスバー左の鍵アイコン →「サイトの設定」→「通知」を「許可」に変更してください。'
-              : '通知がブロックされています。ブラウザのサイト設定で、このサイトの「通知」を「許可」に変更してください。';
-        setNotificationHint(help);
+        setNotificationHint(
+          '通知がブロックされています。Chrome のアドレスバー左の鍵アイコン →「サイトの設定」→「通知」を「許可」に変更してください。'
+        );
         return;
       }
 
@@ -207,9 +219,34 @@ export default function PreJoinMeetingModal({
       setNotificationHint('');
     } catch (err) {
       console.warn('[PreJoinMeetingModal] Failed to request notification permission', err);
-      alert('通知の有効化に失敗しました。ブラウザの設定をご確認ください。');
+      if (!opts?.silent) alert('通知の有効化に失敗しました。ブラウザの設定をご確認ください。');
     }
   };
+
+  useEffect(() => {
+    if (!open) {
+      autoNotificationRequestedRef.current = false;
+    }
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (autoNotificationRequestedRef.current) return;
+    autoNotificationRequestedRef.current = true;
+
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof Notification === 'undefined') return;
+      // eslint-disable-next-line no-undef
+      const current = String(Notification.permission || 'default');
+      if (current !== 'default') return;
+    } catch (_) {
+      return;
+    }
+
+    requestNotificationPermission({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return () => {};
@@ -261,6 +298,30 @@ export default function PreJoinMeetingModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Restart preview to apply camera/mic toggles.
+    stopPreview();
+    startPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinWithCamera, joinWithMic, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!joinWithCamera) return;
+    stopPreview();
+    startPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideoDeviceId]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!joinWithMic) return;
+    stopPreview();
+    startPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAudioDeviceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -422,21 +483,6 @@ export default function PreJoinMeetingModal({
               </div>
 
               <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={requestNotificationPermission}
-                  disabled={notificationPermission === 'granted' || notificationPermission === 'unsupported'}
-                  className="w-full rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {notificationPermission === 'granted' ? '通知: 有効' : 'OS通知を有効化'}
-                </button>
-                <div className="mt-1 text-xs text-slate-600">
-                  {notificationPermission === 'unsupported'
-                    ? 'このブラウザは通知に対応していません'
-                    : notificationPermission === 'denied'
-                      ? '通知がブロックされています（ブラウザ設定で許可してください）'
-                      : '別タブでも新着メッセージに気づけます'}
-                </div>
                 {notificationHint && (
                   <div className="mt-1 text-xs font-semibold text-rose-600">{notificationHint}</div>
                 )}
