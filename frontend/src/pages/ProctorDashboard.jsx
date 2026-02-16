@@ -12,6 +12,7 @@ import {
   createMeeting,
   endScheduledMeeting,
   fetchProfile,
+  listAttendanceSessions,
   presignProctorRecordingUpload,
 } from '../api/client.js';
 import ChatPanel from '../components/chat/ChatPanel.jsx';
@@ -105,6 +106,9 @@ export default function ProctorDashboard({
   const chatEndRef = useRef(null);
   const examEndHandledRef = useRef(false);
   const forcedLeaveHandledRef = useRef(false);
+
+  // attendeeId(base) -> externalUserId (persist across transient state resets)
+  const externalUserIdByAttendeeIdRef = useRef(new Map());
   const videoRef = useRef(null); // Local Proctor Video
   const audioRef = useRef(null); // Proctor Audio Output (to hear students)
   const prejoinStreamRef = useRef(null);
@@ -213,6 +217,64 @@ export default function ProctorDashboard({
     return id.split('#')[0].trim();
   };
 
+  const learnExternalUserIdForAttendee = (attendeeId, externalUserId) => {
+    const a = normalizeAttendeeId(attendeeId);
+    const e = String(externalUserId || '').trim();
+    if (!a || !e) return;
+    if (!externalUserIdByAttendeeIdRef.current) externalUserIdByAttendeeIdRef.current = new Map();
+    externalUserIdByAttendeeIdRef.current.set(a, e);
+
+    // If this is an examinee, ensure studentsMap has at least attendeeId+externalUserId so chat can resolve name.
+    try {
+      const baseExternal = e.split('#')[0];
+      const isProctor = baseExternal.startsWith('proctor:') || baseExternal.startsWith('proctor-');
+      if (isProctor) return;
+    } catch (_) {
+      // ignore
+    }
+
+    setStudentsMap((prev) => {
+      const next = { ...(prev || {}) };
+
+      const stableKey = stableStudentKeyFromExternalUserId(e);
+      const existing = next[stableKey] || {};
+      if (String(existing.externalUserId || '').trim() === e && normalizeAttendeeId(existing.attendeeId) === a) return prev;
+
+      next[stableKey] = {
+        ...(existing || {}),
+        attendeeId: a,
+        externalUserId: e,
+      };
+
+      // Cleanup any older attendeeId-keyed placeholder to avoid double-counting.
+      if (a !== stableKey && next[a] && normalizeAttendeeId(next[a]?.attendeeId) === a) {
+        delete next[a];
+      }
+
+      return next;
+    });
+  };
+
+  const refreshRosterFromAttendance = async (joinCode) => {
+    const code = String(joinCode || '').trim();
+    if (!code) return;
+    try {
+      const rows = await listAttendanceSessions(code);
+      if (!Array.isArray(rows)) return;
+
+      for (const r of rows) {
+        if (!r) continue;
+        if (r.left_at) continue;
+        const attendeeId = normalizeAttendeeId(r.attendee_id);
+        const externalUserId = String(r.external_user_id || '').trim();
+        if (!attendeeId || !externalUserId) continue;
+        learnExternalUserIdForAttendee(attendeeId, externalUserId);
+      }
+    } catch (err) {
+      console.warn('[ProctorDashboard] Failed to refresh roster from attendance', err);
+    }
+  };
+
   const studentsList = Object.values(studentsMap)
     .filter((s) => s && s.attendeeId)
     .map((s) => ({
@@ -245,8 +307,82 @@ export default function ProctorDashboard({
         return stableStudentKeyFromExternalUserId(student.externalUserId);
       }
     }
+
+    // Fallback 1: cached mapping (attendance/presence)
+    try {
+      const cached = externalUserIdByAttendeeIdRef.current?.get?.(id);
+      if (cached) return stableStudentKeyFromExternalUserId(cached);
+    } catch (_) {
+      // ignore
+    }
+
+    // Fallback 2: presence API (if available)
+    try {
+      const info = meetingSession?.audioVideo?.realtimeGetAttendeeIdPresence?.(id);
+      const ext = String(info?.externalUserId || '').trim();
+      if (ext) {
+        learnExternalUserIdForAttendee(id, ext);
+        return stableStudentKeyFromExternalUserId(ext);
+      }
+    } catch (_) {
+      // ignore
+    }
+
     return id;
   };
+
+  const resolveStableKeyForConvKey = (convKey) => {
+    const k = String(convKey || '').trim();
+    if (!k || k === 'all') return k;
+    if (activeStudentByStableKey.has(k)) return k;
+
+    // If k is an attendeeId we now recognize, promote it to stable key.
+    const id = normalizeAttendeeId(k);
+    const promoted = stableKeyFromAttendeeId(id);
+    return promoted || k;
+  };
+
+  useEffect(() => {
+    // When roster mapping becomes available, migrate chat keys away from raw attendeeId.
+    const currentMessages = chatMessages;
+    if (!Array.isArray(currentMessages) || currentMessages.length === 0) return;
+
+    let changed = false;
+    const nextMessages = currentMessages.map((m) => {
+      const oldKey = String(m?.convKey || '').trim();
+      if (!oldKey || oldKey === 'all') return m;
+      const newKey = resolveStableKeyForConvKey(oldKey);
+      if (!newKey || newKey === oldKey) return m;
+      changed = true;
+      return {
+        ...m,
+        convKey: newKey,
+        peerDisplayName: String(m?.peerDisplayName || '').trim() || resolveStudentNameByStableKey(newKey),
+      };
+    });
+
+    if (!changed) return;
+
+    setChatMessages(nextMessages);
+
+    setChatUnreadByKey((prev) => {
+      const out = { ...(prev || {}) };
+      for (const [k, v] of Object.entries(prev || {})) {
+        const nk = resolveStableKeyForConvKey(k);
+        if (nk && nk !== k) {
+          out[nk] = (Number(out[nk]) || 0) + (Number(v) || 0);
+          delete out[k];
+        }
+      }
+      return out;
+    });
+
+    setChatTo((prev) => {
+      const nk = resolveStableKeyForConvKey(prev);
+      return nk || prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentsMap]);
 
   const resolveStudentNameByStableKey = (stableKey) => {
     const k = String(stableKey || '').trim();
@@ -1326,6 +1462,9 @@ export default function ProctorDashboard({
       setStatus('Connecting...');
       const userId = makeExternalUserIdWithFallback('proctor', profile, currentUsername);
 
+      // Best-effort: prefetch roster mapping so chat tabs don't fall back to raw attendeeId.
+      refreshRosterFromAttendance(joinCode);
+
       const meetingResponse = await createMeeting(joinCode);
       const attendeeResponse = await createAttendee(meetingResponse.Meeting.MeetingId, userId);
 
@@ -1692,6 +1831,14 @@ export default function ProctorDashboard({
       }
     }
   };
+
+  useEffect(() => {
+    if (!meetingSession) return;
+    const joinCode = String(meetingId || '').trim();
+    if (!joinCode) return;
+    refreshRosterFromAttendance(joinCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingSession, meetingId]);
 
   // Auto-join flow: if the user clicked "開始" in the waiting modal, join immediately.
   useEffect(() => {
