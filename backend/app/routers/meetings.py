@@ -49,6 +49,8 @@ def guest_join_meeting(
     # Scheduled meeting: allow guest to join only after started.
     scheduled = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == external_id).one_or_none()
     if scheduled is not None:
+        if scheduled.status == "ended":
+            raise HTTPException(status_code=403, detail="Meeting ended")
         if scheduled.status != "started" or not scheduled.chime_meeting_id:
             raise HTTPException(status_code=403, detail="Meeting not started")
 
@@ -133,6 +135,8 @@ def create_meeting(
             return resp
 
         # Examinee (or other users) can join only after started.
+        if scheduled.status == "ended":
+            raise HTTPException(status_code=403, detail="Meeting ended")
         if scheduled.status != "started" or not scheduled.chime_meeting_id:
             raise HTTPException(status_code=403, detail="Meeting not started")
 
@@ -176,8 +180,18 @@ def create_attendee(
     meeting_id: str,
     request: AttendeeRequest,
     user: dict = Depends(get_current_user_record),
+    db: Session = Depends(get_db),
 ):
     client = get_chime_client()
+
+    # If this MeetingId belongs to an ended scheduled meeting, block re-join.
+    scheduled = (
+        db.query(ScheduledMeeting)
+        .filter(ScheduledMeeting.chime_meeting_id == meeting_id)
+        .one_or_none()
+    )
+    if scheduled is not None and scheduled.status == "ended":
+        raise HTTPException(status_code=403, detail="Meeting ended")
 
     try:
         response = client.create_attendee(MeetingId=meeting_id, ExternalUserId=request.external_user_id)

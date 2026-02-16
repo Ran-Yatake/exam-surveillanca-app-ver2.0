@@ -24,6 +24,22 @@ export default function PreJoinExamineeModal({
   const [joinWithCamera, setJoinWithCamera] = useState(true);
   const [joinWithMic, setJoinWithMic] = useState(true);
 
+  const [notificationPermission, setNotificationPermission] = useState('');
+  const [notificationHint, setNotificationHint] = useState('');
+
+  const getBrowserForNotificationHelp = () => {
+    try {
+      const ua = String(navigator?.userAgent || '');
+      // Chromium Edge contains "Edg/".
+      if (/Edg\//.test(ua)) return 'edge';
+      // Chrome contains "Chrome/" (or "CriOS" on iOS). Exclude Edge.
+      if ((/Chrome\//.test(ua) || /CriOS\//.test(ua)) && !/Edg\//.test(ua)) return 'chrome';
+      return 'other';
+    } catch (_) {
+      return 'other';
+    }
+  };
+
   const [videoDevices, setVideoDevices] = useState([]);
   const [audioDevices, setAudioDevices] = useState([]);
   const [audioOutputDevices, setAudioOutputDevices] = useState([]);
@@ -98,6 +114,106 @@ export default function PreJoinExamineeModal({
   }, [open, busy, onClose]);
 
   useEffect(() => {
+    if (!open) return;
+
+    const refreshPermission = () => {
+      try {
+        // eslint-disable-next-line no-undef
+        if (typeof Notification === 'undefined') {
+          setNotificationPermission('unsupported');
+          return;
+        }
+        // eslint-disable-next-line no-undef
+        setNotificationPermission(String(Notification.permission || 'default'));
+      } catch (_) {
+        setNotificationPermission('unsupported');
+      }
+    };
+
+    refreshPermission();
+    setNotificationHint('');
+
+    let timer = null;
+    try {
+      timer = setInterval(refreshPermission, 1000);
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      window.addEventListener('focus', refreshPermission);
+    } catch (_) {
+      // ignore
+    }
+
+    return () => {
+      try {
+        if (timer) clearInterval(timer);
+      } catch (_) {
+        // ignore
+      }
+      try {
+        window.removeEventListener('focus', refreshPermission);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, [open]);
+
+  const requestNotificationPermission = async () => {
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof Notification === 'undefined') {
+        alert('このブラウザは通知に対応していません。');
+        setNotificationPermission('unsupported');
+        return;
+      }
+      // eslint-disable-next-line no-undef
+      const current = String(Notification.permission || 'default');
+      if (current === 'granted') {
+        setNotificationPermission('granted');
+        setNotificationHint('');
+        return;
+      }
+
+      if (current === 'denied') {
+        setNotificationPermission('denied');
+        const b = getBrowserForNotificationHelp();
+        const help =
+          b === 'edge'
+            ? '通知がブロックされています。Edge のアドレスバー左の鍵アイコン →「このサイトのアクセス許可」→「通知」を「許可」に変更してください。'
+            : b === 'chrome'
+              ? '通知がブロックされています。Chrome のアドレスバー左の鍵アイコン →「サイトの設定」→「通知」を「許可」に変更してください。'
+              : '通知がブロックされています。ブラウザのサイト設定で、このサイトの「通知」を「許可」に変更してください。';
+        setNotificationHint(help);
+        return;
+      }
+
+      let perm = 'default';
+      try {
+        // eslint-disable-next-line no-undef
+        const result = Notification.requestPermission();
+        perm = typeof result === 'string' ? result : await result;
+      } catch (_) {
+        // Safari fallback
+        perm = await new Promise((resolve) => {
+          try {
+            // eslint-disable-next-line no-undef
+            Notification.requestPermission((p) => resolve(p));
+          } catch (_) {
+            resolve('default');
+          }
+        });
+      }
+      setNotificationPermission(String(perm || 'default'));
+      setNotificationHint('');
+    } catch (err) {
+      console.warn('[PreJoinExamineeModal] Failed to request notification permission', err);
+      alert('通知の有効化に失敗しました。ブラウザの設定をご確認ください。');
+    }
+  };
+
+  useEffect(() => {
     if (!open) return () => {};
     let cancelled = false;
 
@@ -168,6 +284,8 @@ export default function PreJoinExamineeModal({
   const trimmedId = String(meetingId || '').trim();
   const trimmedDisplayName = String(displayName || '').trim();
   const canStart = Boolean(trimmedId) && (!requireDisplayName || Boolean(trimmedDisplayName));
+  const notificationsOk = notificationPermission === 'granted' || notificationPermission === 'unsupported';
+  const canStartWithNotifications = canStart && notificationsOk;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -324,11 +442,35 @@ export default function PreJoinExamineeModal({
                 </div>
               </div>
 
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={requestNotificationPermission}
+                  disabled={notificationPermission === 'granted' || notificationPermission === 'unsupported'}
+                  className="w-full rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {notificationPermission === 'granted' ? '通知: 有効' : 'OS通知を有効化'}
+                </button>
+                <div className="mt-1 text-xs text-slate-600">
+                  {notificationPermission === 'unsupported'
+                    ? 'このブラウザは通知に対応していません'
+                    : notificationPermission === 'denied'
+                      ? '通知がブロックされています（ブラウザ設定で許可してください）'
+                      : '別タブでも新着メッセージに気づけます'}
+                </div>
+                {notificationHint && (
+                  <div className="mt-1 text-xs font-semibold text-rose-600">{notificationHint}</div>
+                )}
+                {!notificationsOk && (
+                  <div className="mt-1 text-xs font-semibold text-rose-600">試験開始前に通知の有効化が必要です</div>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
                   if (busy) return;
-                  if (!canStart) return;
+                  if (!canStartWithNotifications) return;
                   // do NOT stop tracks; hand over to meeting page
                   detachVideo();
                   onStart?.({
@@ -343,7 +485,7 @@ export default function PreJoinExamineeModal({
                     autoJoin: true,
                   });
                 }}
-                disabled={busy || !canStart}
+                disabled={busy || !canStartWithNotifications}
                 className="mt-3 w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy ? '開始中...' : '開始'}

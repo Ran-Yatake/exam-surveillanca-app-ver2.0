@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user_record, require_proctor
-from ..chime_client import _generate_join_code, _get_or_create_chime_meeting
+from ..chime_client import _generate_join_code, _get_or_create_chime_meeting, get_chime_client
 from ..db import get_db
 from ..models import ScheduledMeeting
 
@@ -46,6 +46,12 @@ class ScheduledMeetingResponse(BaseModel):
 class ScheduledMeetingStartResponse(BaseModel):
     join_code: str
     meeting: dict
+
+
+class ScheduledMeetingEndResponse(BaseModel):
+    join_code: str
+    status: str
+    chime_deleted: bool = False
 
 
 class PresignRecordingUploadRequest(BaseModel):
@@ -157,6 +163,38 @@ def start_scheduled_meeting(
     db.commit()
 
     return ScheduledMeetingStartResponse(join_code=row.join_code, meeting=resp)
+
+
+@router.post("/scheduled-meetings/{join_code}/end", response_model=ScheduledMeetingEndResponse)
+def end_scheduled_meeting(
+    join_code: str,
+    user=Depends(require_proctor),
+    db: Session = Depends(get_db),
+):
+    row = db.query(ScheduledMeeting).filter(ScheduledMeeting.join_code == join_code).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Scheduled meeting not found")
+
+    # Idempotent: if already ended, return as-is.
+    if row.status == "ended":
+        return ScheduledMeetingEndResponse(join_code=row.join_code, status=row.status, chime_deleted=False)
+
+    row.status = "ended"
+    db.add(row)
+    db.commit()
+
+    chime_deleted = False
+    meeting_id = (row.chime_meeting_id or "").strip()
+    if meeting_id:
+        try:
+            client = get_chime_client()
+            client.delete_meeting(MeetingId=meeting_id)
+            chime_deleted = True
+        except Exception:
+            # Best-effort: DB gate is the source of truth.
+            chime_deleted = False
+
+    return ScheduledMeetingEndResponse(join_code=row.join_code, status=row.status, chime_deleted=chime_deleted)
 
 
 @router.delete("/scheduled-meetings/{join_code}")

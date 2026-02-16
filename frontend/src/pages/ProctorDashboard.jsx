@@ -10,6 +10,7 @@ import {
 import {
   createAttendee,
   createMeeting,
+  endScheduledMeeting,
   fetchProfile,
   presignProctorRecordingUpload,
 } from '../api/client.js';
@@ -17,6 +18,7 @@ import ChatPanel from '../components/chat/ChatPanel.jsx';
 import ProctorChatMessage from '../components/chat/messages/ProctorChatMessage.jsx';
 
 const CHAT_TOPIC = 'exam-chat-v1';
+const EXAM_CONTROL_TOPIC = 'exam-control-v1';
 const MAX_CHAT_LEN = 500;
 
 function safeJsonParse(text) {
@@ -58,6 +60,19 @@ export default function ProctorDashboard({
 }) {
   const [meetingSession, setMeetingSession] = useState(null);
   const [status, setStatus] = useState('Idle');
+
+  const [endExamConfirmOpen, setEndExamConfirmOpen] = useState(false);
+
+  const baseTitleRef = useRef('');
+  const [isDocumentHidden, setIsDocumentHidden] = useState(() => {
+    try {
+      // eslint-disable-next-line no-undef
+      return typeof document !== 'undefined' ? Boolean(document.hidden) : false;
+    } catch (_) {
+      return false;
+    }
+  });
+  const [hiddenChatUnreadCount, setHiddenChatUnreadCount] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [isMicReady, setIsMicReady] = useState(false);
@@ -88,6 +103,8 @@ export default function ProctorDashboard({
   const chatToRef = useRef('all');
   const chatNoticeTimerRef = useRef(null);
   const chatEndRef = useRef(null);
+  const examEndHandledRef = useRef(false);
+  const forcedLeaveHandledRef = useRef(false);
   const videoRef = useRef(null); // Local Proctor Video
   const audioRef = useRef(null); // Proctor Audio Output (to hear students)
   const prejoinStreamRef = useRef(null);
@@ -295,6 +312,105 @@ export default function ProctorDashboard({
     if (key === chatTo) return sum;
     return sum + (Number(count) || 0);
   }, 0);
+
+  const maybeNotifySystem = ({ title, body, tag }) => {
+    try {
+      // eslint-disable-next-line no-undef
+      const isActive =
+        typeof document !== 'undefined' &&
+        !document.hidden &&
+        (typeof document.hasFocus !== 'function' || document.hasFocus());
+      if (isActive) return;
+      // eslint-disable-next-line no-undef
+      if (typeof Notification === 'undefined') return;
+      // eslint-disable-next-line no-undef
+      if (Notification.permission !== 'granted') return;
+      // eslint-disable-next-line no-undef
+      new Notification(String(title || '新着メッセージ'), {
+        body: String(body || ''),
+        tag: String(tag || 'exam-chat'),
+      });
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof document !== 'undefined' && !baseTitleRef.current) baseTitleRef.current = document.title || '';
+    } catch (_) {
+      // ignore
+    }
+
+    const onVis = () => {
+      try {
+        // eslint-disable-next-line no-undef
+        const hiddenNow = typeof document !== 'undefined' ? Boolean(document.hidden) : false;
+        const focusedNow = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? Boolean(document.hasFocus()) : true;
+        setIsDocumentHidden(hiddenNow);
+        if (!hiddenNow && focusedNow) setHiddenChatUnreadCount(0);
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    try {
+      // eslint-disable-next-line no-undef
+      document.addEventListener('visibilitychange', onVis);
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      // eslint-disable-next-line no-undef
+      window.addEventListener('focus', onVis);
+      // eslint-disable-next-line no-undef
+      window.addEventListener('blur', onVis);
+    } catch (_) {
+      // ignore
+    }
+    return () => {
+      try {
+        // eslint-disable-next-line no-undef
+        document.removeEventListener('visibilitychange', onVis);
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        // eslint-disable-next-line no-undef
+        window.removeEventListener('focus', onVis);
+        // eslint-disable-next-line no-undef
+        window.removeEventListener('blur', onVis);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const base = String(baseTitleRef.current || '').trim();
+    const countForTitle = isDocumentHidden ? Math.max(Number(hiddenChatUnreadCount) || 0, Number(totalUnread) || 0) : Number(totalUnread) || 0;
+    const nextTitle = countForTitle > 0 ? `(${countForTitle}) ${base || 'Exam'}` : base || 'Exam';
+
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof document !== 'undefined') document.title = nextTitle;
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof navigator !== 'undefined' && typeof navigator.setAppBadge === 'function') {
+        if (countForTitle > 0) navigator.setAppBadge(countForTitle);
+        else if (typeof navigator.clearAppBadge === 'function') navigator.clearAppBadge();
+      }
+    } catch (_) {
+      // ignore
+    }
+  }, [totalUnread, hiddenChatUnreadCount, isDocumentHidden]);
 
   const clearChatNoticeTimer = () => {
     if (!chatNoticeTimerRef.current) return;
@@ -612,9 +728,30 @@ export default function ProctorDashboard({
 
       const currentTo = chatToRef.current;
       const isIncomingFromExaminee = payload.fromRole === 'examinee' && payload.toRole === 'proctor' && payload.type === 'direct';
-      if (isIncomingFromExaminee && convKey && convKey !== currentTo) {
-        bumpUnread(convKey);
-        showChatNotice(`${resolveStudentNameByStableKey(convKey)} から新着メッセージ`);
+      if (isIncomingFromExaminee && convKey) {
+        try {
+          // eslint-disable-next-line no-undef
+          const isActive =
+            typeof document !== 'undefined' &&
+            !document.hidden &&
+            (typeof document.hasFocus !== 'function' || document.hasFocus());
+          if (!isActive) setHiddenChatUnreadCount((n) => (Number(n) || 0) + 1);
+        } catch (_) {
+          // ignore
+        }
+
+        const name = resolveStudentNameByStableKey(convKey);
+        const body = String(payload.text || '').slice(0, 120);
+        maybeNotifySystem({
+          title: `${name} から新着メッセージ`,
+          body,
+          tag: `exam-chat-${String(convKey || 'all')}-${String(id || '')}`,
+        });
+
+        if (convKey !== currentTo) {
+          bumpUnread(convKey);
+          showChatNotice(`${name} から新着メッセージ`);
+        }
       }
 
       setChatMessages((prev) => [
@@ -795,7 +932,46 @@ export default function ProctorDashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVideoInputDeviceId]);
 
-  const endExam = async () => {
+  const broadcastEndExam = (session) => {
+    if (!session?.audioVideo) return;
+    const payload = {
+      id: makeMessageId(),
+      ts: nowIso(),
+      type: 'end_exam',
+      fromRole: 'proctor',
+      fromAttendeeId: myAttendeeId,
+    };
+    try {
+      session.audioVideo.realtimeSendDataMessage(EXAM_CONTROL_TOPIC, JSON.stringify(payload), 60000);
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  const kickParticipant = (session, attendeeId, roleHint) => {
+    if (!session?.audioVideo) return;
+    const toBase = normalizeAttendeeId(attendeeId);
+    if (!toBase) return;
+    const myBase = normalizeAttendeeId(myAttendeeId);
+    if (myBase && toBase === myBase) return;
+
+    const payload = {
+      id: makeMessageId(),
+      ts: nowIso(),
+      type: 'kick',
+      fromRole: 'proctor',
+      fromAttendeeId: myAttendeeId,
+      toAttendeeId: toBase,
+      toRole: roleHint ? String(roleHint) : undefined,
+    };
+    try {
+      session.audioVideo.realtimeSendDataMessage(EXAM_CONTROL_TOPIC, JSON.stringify(payload), 60000);
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  const endExamLocal = async () => {
     const session = meetingSession;
     if (!session) {
       onBack();
@@ -844,6 +1020,104 @@ export default function ProctorDashboard({
       onBack();
     }
   };
+
+  const endExam = async () => {
+    if (examEndHandledRef.current) return;
+    examEndHandledRef.current = true;
+    const session = meetingSession;
+    if (session) broadcastEndExam(session);
+
+    // Persist end state on backend to block re-join.
+    const joinCode = String(meetingId || '').trim();
+    if (joinCode) {
+      try {
+        await endScheduledMeeting(joinCode);
+      } catch (err) {
+        console.error('[ProctorDashboard] Failed to end scheduled meeting on backend', err);
+        try {
+          alert('バックエンドへの終了通知に失敗しました。再参加ブロックが効かない可能性があります。');
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+    await endExamLocal();
+  };
+
+  useEffect(() => {
+    if (!endExamConfirmOpen) return () => {};
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setEndExamConfirmOpen(false);
+      }
+    };
+    try {
+      window.addEventListener('keydown', onKeyDown);
+    } catch (_) {
+      // ignore
+    }
+    return () => {
+      try {
+        window.removeEventListener('keydown', onKeyDown);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, [endExamConfirmOpen]);
+
+  useEffect(() => {
+    if (!meetingSession?.audioVideo) return;
+
+    const onControlMessage = (dataMessage) => {
+      const rawText = dataMessage?.text?.();
+      const payload = safeJsonParse(rawText);
+      if (!payload) return;
+
+      if (payload.type === 'end_exam') {
+        if (examEndHandledRef.current) return;
+        if (payload.fromRole && payload.fromRole !== 'proctor') return;
+
+        examEndHandledRef.current = true;
+        try {
+          alert('試験が終了しました。');
+        } catch (_) {
+          // ignore
+        }
+        endExamLocal();
+        return;
+      }
+
+      if (payload.type === 'kick') {
+        if (forcedLeaveHandledRef.current) return;
+        if (payload.fromRole && payload.fromRole !== 'proctor') return;
+
+        const toBase = normalizeAttendeeId(payload.toAttendeeId);
+        const myBase = normalizeAttendeeId(myAttendeeId);
+        if (!toBase || !myBase || toBase !== myBase) return;
+
+        forcedLeaveHandledRef.current = true;
+        try {
+          alert('監督者により退出させられました。');
+        } catch (_) {
+          // ignore
+        }
+        endExamLocal();
+      }
+    };
+
+    try {
+      meetingSession.audioVideo.realtimeSubscribeToReceiveDataMessage(EXAM_CONTROL_TOPIC, onControlMessage);
+    } catch (_) {
+      // ignore
+    }
+    return () => {
+      try {
+        meetingSession.audioVideo.realtimeUnsubscribeFromReceiveDataMessage(EXAM_CONTROL_TOPIC, onControlMessage);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, [meetingSession]);
 
   const copyMeetingId = async () => {
     try {
@@ -1410,7 +1684,12 @@ export default function ProctorDashboard({
       setStatus('Monitoring Active');
     } catch (error) {
       console.error(error);
-      setStatus('Error: ' + error.message);
+      const msg = String(error?.message || error);
+      if (msg.includes('Meeting ended') || msg.includes('already ended')) {
+        setStatus('Error: 試験は終了しました。再参加できません。');
+      } else {
+        setStatus('Error: ' + msg);
+      }
     }
   };
 
@@ -1459,7 +1738,7 @@ export default function ProctorDashboard({
 
           {meetingSession && (
             <button
-              onClick={endExam}
+              onClick={() => setEndExamConfirmOpen(true)}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
             >
               試験終了
@@ -1467,6 +1746,54 @@ export default function ProctorDashboard({
           )}
         </div>
       </div>
+
+      {endExamConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="end-exam-confirm-title"
+        >
+          <button
+            type="button"
+            aria-label="閉じる"
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setEndExamConfirmOpen(false)}
+          />
+          <div className="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div id="end-exam-confirm-title" className="text-base font-semibold text-slate-900">
+                  試験を終了しますか？
+                </div>
+                <div className="mt-1 text-xs text-slate-600">
+                  参加者は全員退出し、この会議に再参加できなくなります。
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEndExamConfirmOpen(false)}
+                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100"
+              >
+                閉じる
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEndExamConfirmOpen(false);
+                  endExam();
+                }}
+                className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+              >
+                試験終了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 max-w-3xl">
         <div className="flex flex-wrap items-center gap-2">
@@ -1756,6 +2083,16 @@ export default function ProctorDashboard({
                   {p.displayName || 'Proctor'}
                 </div>
               </div>
+
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => kickParticipant(meetingSession, p.attendeeId, 'proctor')}
+                  className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                >
+                  退出させる
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1778,6 +2115,15 @@ export default function ProctorDashboard({
                         <span>ミュート</span>
                       </span>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => kickParticipant(meetingSession, student.attendeeId, 'examinee')}
+                      disabled={!student?.attendeeId}
+                      className="ml-auto rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      退出させる
+                    </button>
                   </div>
                   <div className="mt-3 flex gap-2">
                     {/* Camera Feed */}

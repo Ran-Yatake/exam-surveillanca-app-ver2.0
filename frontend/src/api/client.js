@@ -194,6 +194,10 @@ export async function startScheduledMeeting(joinCode) {
   return callApi(`/scheduled-meetings/${joinCode}/start`, {});
 }
 
+export async function endScheduledMeeting(joinCode) {
+  return callApi(`/scheduled-meetings/${joinCode}/end`, {});
+}
+
 export async function deleteScheduledMeeting(joinCode) {
   return callApiDelete(`/scheduled-meetings/${joinCode}`);
 }

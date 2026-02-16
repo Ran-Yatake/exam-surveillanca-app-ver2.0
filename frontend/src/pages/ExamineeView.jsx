@@ -19,6 +19,7 @@ import ChatPanel from '../components/chat/ChatPanel.jsx';
 import ExamineeChatMessage from '../components/chat/messages/ExamineeChatMessage.jsx';
 
 const CHAT_TOPIC = 'exam-chat-v1';
+const EXAM_CONTROL_TOPIC = 'exam-control-v1';
 const MAX_CHAT_LEN = 500;
 
 function safeJsonParse(text) {
@@ -42,6 +43,12 @@ function makeMessageId() {
   }
 }
 
+function normalizeAttendeeId(attendeeId) {
+  const id = String(attendeeId || '').trim();
+  if (!id) return '';
+  return id.split('#')[0].trim();
+}
+
 export default function ExamineeView({
   currentUsername,
   isGuest,
@@ -61,6 +68,37 @@ export default function ExamineeView({
 }) {
   const [meetingSession, setMeetingSession] = useState(null);
   const [status, setStatus] = useState('Idle');
+  const baseTitleRef = useRef('');
+  const [isDocumentHidden, setIsDocumentHidden] = useState(() => {
+    try {
+      // eslint-disable-next-line no-undef
+      return typeof document !== 'undefined' ? Boolean(document.hidden) : false;
+    } catch (_) {
+      return false;
+    }
+  });
+  const [hiddenChatUnreadCount, setHiddenChatUnreadCount] = useState(0);
+  function maybeNotifySystem({ title, body, tag }) {
+    try {
+      // eslint-disable-next-line no-undef
+      const isActive =
+        typeof document !== 'undefined' &&
+        !document.hidden &&
+        (typeof document.hasFocus !== 'function' || document.hasFocus());
+      if (isActive) return;
+      // eslint-disable-next-line no-undef
+      if (typeof Notification === 'undefined') return;
+      // eslint-disable-next-line no-undef
+      if (Notification.permission !== 'granted') return;
+      // eslint-disable-next-line no-undef
+      new Notification(String(title || '新着メッセージ'), {
+        body: String(body || ''),
+        tag: String(tag || 'exam-chat'),
+      });
+    } catch (_) {
+      // ignore
+    }
+  }
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
@@ -85,6 +123,8 @@ export default function ExamineeView({
   const [chatDraft, setChatDraft] = useState('');
   const chatSeenIdsRef = useRef(new Set());
   const chatEndRef = useRef(null);
+  const examEndHandledRef = useRef(false);
+  const forcedLeaveHandledRef = useRef(false);
   const videoRef = useRef(null);
   const prejoinStreamRef = useRef(null);
   const autoJoinStartedRef = useRef(false);
@@ -194,6 +234,82 @@ export default function ExamineeView({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
   }, [chatMessages.length]);
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof document !== 'undefined' && !baseTitleRef.current) baseTitleRef.current = document.title || '';
+    } catch (_) {
+      // ignore
+    }
+
+    const onVis = () => {
+      try {
+        // eslint-disable-next-line no-undef
+        const hiddenNow = typeof document !== 'undefined' ? Boolean(document.hidden) : false;
+        const focusedNow = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? Boolean(document.hasFocus()) : true;
+        setIsDocumentHidden(hiddenNow);
+        if (!hiddenNow && focusedNow) setHiddenChatUnreadCount(0);
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    try {
+      // eslint-disable-next-line no-undef
+      document.addEventListener('visibilitychange', onVis);
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      // eslint-disable-next-line no-undef
+      window.addEventListener('focus', onVis);
+      // eslint-disable-next-line no-undef
+      window.addEventListener('blur', onVis);
+    } catch (_) {
+      // ignore
+    }
+    return () => {
+      try {
+        // eslint-disable-next-line no-undef
+        document.removeEventListener('visibilitychange', onVis);
+      } catch (_) {
+        // ignore
+      }
+
+      try {
+        // eslint-disable-next-line no-undef
+        window.removeEventListener('focus', onVis);
+        // eslint-disable-next-line no-undef
+        window.removeEventListener('blur', onVis);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const base = String(baseTitleRef.current || '').trim();
+    const countForTitle = Number(hiddenChatUnreadCount) || 0;
+    const nextTitle = countForTitle > 0 ? `(${countForTitle}) ${base || 'Exam'}` : base || 'Exam';
+
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof document !== 'undefined') document.title = nextTitle;
+    } catch (_) {
+      // ignore
+    }
+
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof navigator !== 'undefined' && typeof navigator.setAppBadge === 'function') {
+        if (countForTitle > 0) navigator.setAppBadge(countForTitle);
+        else if (typeof navigator.clearAppBadge === 'function') navigator.clearAppBadge();
+      }
+    } catch (_) {
+      // ignore
+    }
+  }, [hiddenChatUnreadCount, isDocumentHidden]);
 
   useEffect(() => {
     if (!meetingSession?.audioVideo) return;
@@ -228,6 +344,22 @@ export default function ExamineeView({
 
       if (chatSeenIdsRef.current.has(id)) return;
       chatSeenIdsRef.current.add(id);
+      try {
+        // eslint-disable-next-line no-undef
+        const isActive =
+          typeof document !== 'undefined' &&
+          !document.hidden &&
+          (typeof document.hasFocus !== 'function' || document.hasFocus());
+        if (!isActive) setHiddenChatUnreadCount((n) => (Number(n) || 0) + 1);
+      } catch (_) {
+        // ignore
+      }
+
+      maybeNotifySystem({
+        title: '監督者から新着メッセージ',
+        body: String(payload.text || '').slice(0, 120),
+        tag: `exam-chat-proctor-${String(id || '')}`,
+      });
 
       setChatMessages((prev) => [
         ...prev,
@@ -462,6 +594,82 @@ export default function ExamineeView({
       setStatus('Idle');
     }
   };
+
+  useEffect(() => {
+    if (!meetingSession?.audioVideo) return;
+
+    const onControlMessage = (dataMessage) => {
+      const rawText = dataMessage?.text?.();
+      const payload = safeJsonParse(rawText);
+      if (!payload) return;
+
+      if (payload.type === 'end_exam') {
+        if (payload.fromRole && payload.fromRole !== 'proctor') return;
+        if (examEndHandledRef.current) return;
+
+        examEndHandledRef.current = true;
+        (async () => {
+          try {
+            alert('試験が終了しました。');
+          } catch (_) {
+            // ignore
+          }
+          try {
+            await leaveSession();
+          } catch (_) {
+            // ignore
+          }
+          try {
+            onBack?.();
+          } catch (_) {
+            // ignore
+          }
+        })();
+        return;
+      }
+
+      if (payload.type === 'kick') {
+        if (payload.fromRole && payload.fromRole !== 'proctor') return;
+        if (forcedLeaveHandledRef.current) return;
+
+        const toBase = normalizeAttendeeId(payload.toAttendeeId);
+        const myBase = normalizeAttendeeId(meetingSession?.configuration?.credentials?.attendeeId);
+        if (!toBase || !myBase || toBase !== myBase) return;
+
+        forcedLeaveHandledRef.current = true;
+        (async () => {
+          try {
+            alert('監督者により退出させられました。');
+          } catch (_) {
+            // ignore
+          }
+          try {
+            await leaveSession();
+          } catch (_) {
+            // ignore
+          }
+          try {
+            onBack?.();
+          } catch (_) {
+            // ignore
+          }
+        })();
+      }
+    };
+
+    try {
+      meetingSession.audioVideo.realtimeSubscribeToReceiveDataMessage(EXAM_CONTROL_TOPIC, onControlMessage);
+    } catch (_) {
+      // ignore
+    }
+    return () => {
+      try {
+        meetingSession.audioVideo.realtimeUnsubscribeFromReceiveDataMessage(EXAM_CONTROL_TOPIC, onControlMessage);
+      } catch (_) {
+        // ignore
+      }
+    };
+  }, [meetingSession, onBack]);
 
   const bestEffortSendLeave = () => {
     if (attendanceLeaveSentRef.current) return;
@@ -890,7 +1098,12 @@ export default function ExamineeView({
       setStatus('Connected');
     } catch (error) {
       console.error(error);
-      setStatus('Error: ' + error.message);
+      const msg = String(error?.message || error);
+      if (msg.includes('Meeting ended') || msg.includes('already ended')) {
+        setStatus('Error: 試験は終了しました。再参加できません。');
+      } else {
+        setStatus('Error: ' + msg);
+      }
     }
   };
 
