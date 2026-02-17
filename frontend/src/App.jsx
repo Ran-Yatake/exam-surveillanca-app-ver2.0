@@ -117,7 +117,7 @@ function App() {
   const AuthHeader = () => (
     <header className="w-full border-b border-slate-200 bg-white/80 backdrop-blur">
       <div className="mx-auto w-full max-w-6xl px-4 py-4">
-        <h1 className="text-lg font-semibold text-slate-900">SAK University</h1>
+        <h1 className="text-lg font-semibold text-slate-900">Exam Guard</h1>
       </div>
     </header>
   );
@@ -408,7 +408,7 @@ function App() {
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <div className="mx-auto w-full max-w-4xl px-4 py-8">
           <header className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold">SAK University</h1>
+            <h1 className="text-xl font-semibold">Exam Guard</h1>
             <button
               onClick={() => { setIsLoggedIn(false); setRole(null); signOut(); clearAuthToken(); }}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
@@ -439,7 +439,7 @@ function App() {
       <div className="mx-auto w-full max-w-6xl px-4 py-6">
         <header className="mb-6 flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
-            <h1 className="text-lg font-semibold">SAK University</h1>
+            <h1 className="text-lg font-semibold">Exam Guard</h1>
             <div className="text-xs text-slate-600">
               {role === 'proctor' ? '監督者ダッシュボード' : '受験生ダッシュボード'}
             </div>

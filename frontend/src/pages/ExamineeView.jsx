@@ -14,6 +14,7 @@ import {
   createMeeting,
   fetchProfile,
   guestJoinMeeting,
+  logChatMessage,
 } from '../api/client.js';
 import ChatPanel from '../components/chat/ChatPanel.jsx';
 import ExamineeChatMessage from '../components/chat/messages/ExamineeChatMessage.jsx';
@@ -460,6 +461,15 @@ export default function ExamineeView({
     } catch (err) {
       console.error('Failed to send chat message', err);
       alert('チャット送信に失敗しました。');
+    }
+
+    try {
+      const joinCode = String(attendanceJoinCodeRef.current || '').trim();
+      if (joinCode) {
+        logChatMessage(joinCode, payload).catch(() => {});
+      }
+    } catch (_) {
+      // best-effort
     }
     setChatDraft('');
   };

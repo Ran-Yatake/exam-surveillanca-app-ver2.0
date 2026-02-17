@@ -240,3 +240,25 @@ export async function listAttendanceSessions(joinCode) {
   const code = encodeURIComponent(String(joinCode || '').trim());
   return callApiGet(`/attendance/${code}`);
 }
+
+export async function listChatLogs(joinCode) {
+  const code = encodeURIComponent(String(joinCode || '').trim());
+  return callApiGet(`/chat-logs/${code}`);
+}
+
+export async function logChatMessage(joinCode, payload) {
+  const code = String(joinCode || '').trim();
+  if (!code) throw new Error('joinCode is required');
+  const p = payload || {};
+  return callApiNoAuth('/chat-logs', {
+    join_code: code,
+    message_id: String(p.id || '').trim(),
+    ts: p.ts || null,
+    type: p.type || null,
+    fromRole: p.fromRole || null,
+    fromAttendeeId: p.fromAttendeeId || null,
+    toRole: p.toRole || null,
+    toAttendeeId: p.toAttendeeId || null,
+    text: String(p.text || ''),
+  });
+}

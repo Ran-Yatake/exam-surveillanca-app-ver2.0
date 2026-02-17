@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 
 from .db import Base
 
@@ -69,3 +69,30 @@ class MeetingAttendanceSession(Base):
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class MeetingChatLog(Base):
+    __tablename__ = "meeting_chat_logs"
+
+    __table_args__ = (
+        UniqueConstraint("join_code", "message_id", name="uq_meeting_chat_logs_join_code_message_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    join_code = Column(String(64), index=True, nullable=False)
+    message_id = Column(String(128), index=True, nullable=False)
+
+    # Message metadata (aligned with Chime DataMessage payload)
+    msg_type = Column(String(32), index=True, nullable=True)  # 'broadcast' | 'direct'
+    from_role = Column(String(32), index=True, nullable=True)  # 'proctor' | 'examinee'
+    from_attendee_id = Column(String(128), index=True, nullable=True)
+    to_role = Column(String(32), index=True, nullable=True)  # 'all' | 'proctor' | 'examinee'
+    to_attendee_id = Column(String(128), index=True, nullable=True)
+
+    text = Column(String(4096), nullable=False)
+
+    # Client-sent timestamp (UTC). Keep nullable and fall back to server time.
+    sent_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, server_default=func.now())

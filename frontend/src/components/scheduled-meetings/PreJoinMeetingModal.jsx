@@ -487,7 +487,12 @@ export default function PreJoinMeetingModal({
                   <div className="mt-1 text-xs font-semibold text-rose-600">{notificationHint}</div>
                 )}
                 {!notificationsOk && (
-                  <div className="mt-1 text-xs font-semibold text-rose-600">開始前に通知の有効化が必要です</div>
+                  <>
+                    <div className="mt-1 text-xs font-semibold text-rose-600">開始前に通知の有効化が必要です</div>
+                    <div className="mt-1 text-xs font-semibold text-rose-600">
+                      ブラウザのアドレスバー左のアイコン（鍵/情報）から、このサイトの「通知」を「許可」にしてください。
+                    </div>
+                  </>
                 )}
               </div>
 

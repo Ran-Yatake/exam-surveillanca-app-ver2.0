@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { listAttendanceSessions } from '../../api/client.js';
+import { listAttendanceSessions, listChatLogs } from '../../api/client.js';
 
 const TIME_15MIN_OPTIONS = (() => {
   const out = [];
@@ -135,6 +135,10 @@ export default function ScheduledMeetingDetailModal({
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState('');
 
+  const [chatLogRows, setChatLogRows] = useState([]);
+  const [chatLogLoading, setChatLogLoading] = useState(false);
+  const [chatLogError, setChatLogError] = useState('');
+
   const timeListId = useMemo(() => `schedule-time-15min-${Math.random().toString(16).slice(2)}`, []);
 
   const title = meeting?.title || '（無題）';
@@ -159,6 +163,7 @@ export default function ScheduledMeetingDetailModal({
     setLocalError('');
     setCopyState('');
     setAttendanceError('');
+    setChatLogError('');
     setEditTitle(String(meeting?.title || ''));
     setEditTeacher(String(meeting?.teacher_name || ''));
     setEditDate(toLocalDateInput(meeting?.scheduled_start_at));
@@ -196,10 +201,28 @@ export default function ScheduledMeetingDetailModal({
     }
   };
 
+  const refreshChatLogs = async () => {
+    const code = String(joinCode || '').trim();
+    if (!code) return;
+
+    setChatLogLoading(true);
+    setChatLogError('');
+    try {
+      const res = await listChatLogs(code);
+      setChatLogRows(Array.isArray(res) ? res : []);
+    } catch (e) {
+      setChatLogRows([]);
+      setChatLogError(e?.message || 'チャットログの取得に失敗しました');
+    } finally {
+      setChatLogLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!open) return;
     if (!joinCode) return;
     refreshAttendance();
+    refreshChatLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, joinCode]);
 
@@ -247,6 +270,55 @@ export default function ScheduledMeetingDetailModal({
     const ts = new Date();
     const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}-${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}`;
     a.download = `attendance-${code}-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadChatLogCsv = () => {
+    const code = String(joinCode || '').trim();
+    if (!code) return;
+
+    const rows = Array.isArray(chatLogRows) ? chatLogRows : [];
+    const header = [
+      'join_code',
+      'message_id',
+      'type',
+      'from_role',
+      'from_attendee_id',
+      'to_role',
+      'to_attendee_id',
+      'text',
+      'ts',
+      'created_at',
+    ];
+
+    const lines = [header.map(escapeCsv).join(',')];
+    for (const r of rows) {
+      const line = [
+        r?.join_code || code,
+        r?.message_id || '',
+        r?.type || '',
+        r?.from_role || '',
+        r?.from_attendee_id || '',
+        r?.to_role || '',
+        r?.to_attendee_id || '',
+        r?.text || '',
+        r?.ts || '',
+        r?.created_at || '',
+      ];
+      lines.push(line.map(escapeCsv).join(','));
+    }
+
+    const csvText = `\uFEFF${lines.join('\n')}\n`;
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date();
+    const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}-${String(ts.getHours()).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}`;
+    a.download = `chat-${code}-${stamp}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -482,6 +554,67 @@ export default function ScheduledMeetingDetailModal({
                 </table>
               ) : (
                 <div className="text-sm text-slate-600">参加ログがありません。</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!isEditing && (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-semibold text-slate-900">チャットログ</div>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshChatLogs}
+                  disabled={chatLogLoading || busy || !joinCode}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {chatLogLoading ? '取得中...' : '更新'}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadChatLogCsv}
+                  disabled={chatLogLoading || busy || !joinCode}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  CSV出力
+                </button>
+              </div>
+            </div>
+
+            {chatLogError && <div className="mt-2 text-sm font-semibold text-rose-600">{chatLogError}</div>}
+
+            <div className="mt-3 overflow-x-auto">
+              {Array.isArray(chatLogRows) && chatLogRows.length > 0 ? (
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr className="text-left text-xs font-semibold text-slate-600">
+                      <th className="border-b border-slate-200 pb-2 pr-3">時刻</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">From</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">To</th>
+                      <th className="border-b border-slate-200 pb-2 pr-3">種別</th>
+                      <th className="border-b border-slate-200 pb-2">内容</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chatLogRows.map((r) => (
+                      <tr key={`${r?.id || ''}-${r?.message_id || ''}`} className="text-sm text-slate-800">
+                        <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{formatIsoLocal(r?.ts)}</td>
+                        <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">
+                          {`${r?.from_role || '—'}`}
+                        </td>
+                        <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">
+                          {`${r?.to_role || '—'}`}
+                        </td>
+                        <td className="border-b border-slate-100 py-2 pr-3 whitespace-nowrap">{r?.type || '—'}</td>
+                        <td className="border-b border-slate-100 py-2 break-words">{safeText(r?.text || '')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="text-sm text-slate-600">チャットログがありません。</div>
               )}
             </div>
           </div>

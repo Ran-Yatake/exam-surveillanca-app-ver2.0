@@ -13,6 +13,7 @@ import {
   endScheduledMeeting,
   fetchProfile,
   listAttendanceSessions,
+  logChatMessage,
   presignProctorRecordingUpload,
 } from '../api/client.js';
 import ChatPanel from '../components/chat/ChatPanel.jsx';
@@ -987,6 +988,15 @@ export default function ProctorDashboard({
     } catch (err) {
       console.error('Failed to send chat message', err);
       alert('チャット送信に失敗しました。');
+    }
+
+    try {
+      const joinCode = String(meetingId || '').trim();
+      if (joinCode) {
+        logChatMessage(joinCode, payload).catch(() => {});
+      }
+    } catch (_) {
+      // best-effort
     }
     setChatDraft('');
   };
